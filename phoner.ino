@@ -6,41 +6,56 @@
 
 HardwareSerial sim800l(1); // RX, TX
 
+const int buttonPin = 9;
+bool buttonPressed = false;
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 500;
+
 void setup()
 {
-  //Begin serial communication with Arduino and Arduino IDE (Serial Monitor)
-  Serial.begin(115200);
-  
-  //Begin serial communication with Arduino and SIM800L
+  // Setup Serial communications
+  Serial.begin(115200); // Serial monitor comm
   sim800l.begin(9600, SERIAL_8N1, 4, 5); // Works with HardwareSerial(1)
 
-  Serial.println("\n\nInitializing...");
-
+  // Setup sim800l module
+  Serial.write("Starting handshake...\n");
   sim800l.println("AT"); //Once the handshake test is successful, it will back to OK
   updateSerial();
   delay(10000);
+
+  Serial.write("Signal quality test...\n");
   sim800l.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
   updateSerial();
+
+  Serial.write("Reading SIM information...\n");
   sim800l.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
   updateSerial();
-  sim800l.println("AT+COPS=0,2"); //Check whether it has registered in the network
+
+  Serial.write("Selecting mobile operator...\n");
+  sim800l.println("AT+COPS=0,2"); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
   updateSerial();
-  sim800l.println("AT+CREG?"); //Check whether it has registered in the network
+
+  Serial.write("Checking network status...\n");
+  sim800l.println("AT+CREG?"); //check the network registration status. Will answer +CREG: <n>,<stat>
   updateSerial();
-  sim800l.println("AT+CBC"); //Check whether it has registered in the network
+
+  Serial.write("Querying battery status...\n");
+  sim800l.println("AT+CBC"); // Querry battery status
   updateSerial();
-  //sim800l.println("AT+COPS?"); //Check whether it has registered in the network
-  //updateSerial();
-  sim800l.println("ATD+ +32498341934;"); //  change ZZ with country code and xxxxxxxxxxx with phone number to dial
-  updateSerial();
-  delay(20000); // wait for 20 seconds...
-  sim800l.println("ATH"); //hang up
-  updateSerial();
+
+  // Setup button and interupt
+  pinMode(buttonPin, INPUT_PULLUP);  // Set the button pin as input with internal pull-up resistor
+  attachInterrupt(digitalPinToInterrupt(buttonPin), buttonISR, FALLING);
 }
 
 void loop()
 {
-
+  // Check if the button was pressed
+  if (buttonPressed) {
+    Serial.println("Button Pressed!");
+    call();
+    buttonPressed = false;  // Call() is blocking so all button press that happened during call() are ignored
+  }
 }
 
 void updateSerial()
@@ -53,5 +68,29 @@ void updateSerial()
   while(sim800l.available()) 
   {
     Serial.write(sim800l.read());//Forward what Software Serial received to Serial Port
+  }
+}
+
+void call()
+{
+  // CALL
+  Serial.write("Calling...\n");
+  sim800l.println("ATD+ +32498341934;");
+  updateSerial();
+  delay(20000); // wait for 20 seconds
+
+  Serial.write("Hanging up...\n");
+  sim800l.println("ATH"); //hang up
+  updateSerial();
+}
+
+void buttonISR() 
+{
+  unsigned long currentTime = millis();
+  // Debounce logic
+  if((currentTime - lastDebounceTime) > debounceDelay)
+  {
+    buttonPressed = true;
+    lastDebounceTime = currentTime;
   }
 }

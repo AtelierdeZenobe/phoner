@@ -1,3 +1,6 @@
+/// Deepsleep
+#include "esp_sleep.h"
+
 /// Sim800l comm
 #include <HardwareSerial.h>
 HardwareSerial sim800l(1); // RX, TX
@@ -5,10 +8,7 @@ const int RX_PIN = 4;
 const int TX_PIN = 5;
 
 /// Button
-const int buttonPin = 9;
-bool buttonPressed = false;
-unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 500;
+#define BTN_GPIO GPIO_NUM_6
 
 /// Battery
 const int VBAT_PIN = 0;
@@ -17,10 +17,27 @@ const float VREF = 3.3;
 /// On-board led
 const int led = 15;
 
+/// Setup logic
+RTC_DATA_ATTR int bootCount = 0;
+
 void setup()
 { 
+  /*
+   * INITIAL SETUP
+   *
+  */
+
   /// On-board led
-  pinMode(led,OUTPUT);
+  pinMode(led, OUTPUT);
+
+  /// Btn
+  pinMode(BTN_GPIO, INPUT_PULLDOWN);
+  
+  for(int i=0; i<bootCount; i++)
+  {
+    blink(1000);
+  }
+  bootCount++;
 
   /// Battery check
   analogReadResolution(12);
@@ -29,46 +46,56 @@ void setup()
   Serial.begin(115200); // Serial monitor comm
   sim800l.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Works with HardwareSerial(1)
 
-  // Setup sim800l module
-  Serial.write("Starting handshake...\n");
-  sim800l.println("AT"); //Once the handshake test is successful, it will back to OK
-  updateSerial();
-  delay(10000);
+  if(bootCount > 0 )
+  {
+    call();
+  }
 
-  Serial.write("Signal quality test...\n");
-  sim800l.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
-  updateSerial();
+  if (bootCount == 0)
+  {
+    // Setup sim800l module
+    Serial.write("Starting handshake...\n");
+    sim800l.println("AT"); //Once the handshake test is successful, it will back to OK
+    updateSerial();
+    delay(10000);
 
-  Serial.write("Reading SIM information...\n");
-  sim800l.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
-  updateSerial();
+    Serial.write("Signal quality test...\n");
+    sim800l.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
+    updateSerial();
 
-  Serial.write("Selecting mobile operator...\n");
-  sim800l.println("AT+COPS=0,2"); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
-  updateSerial();
+    Serial.write("Reading SIM information...\n");
+    sim800l.println("AT+CCID"); //Read SIM information to confirm whether the SIM is plugged
+    updateSerial();
 
-  Serial.write("Checking network status...\n");
-  sim800l.println("AT+CREG?"); //check the network registration status. Will answer +CREG: <n>,<stat>
-  updateSerial();
+    Serial.write("Selecting mobile operator...\n");
+    sim800l.println("AT+COPS=0,2"); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
+    updateSerial();
 
-  Serial.write("Querying battery status...\n");
-  sim800l.println("AT+CBC"); // Querry battery status
-  updateSerial();
+    Serial.write("Checking network status...\n");
+    sim800l.println("AT+CREG?"); //check the network registration status. Will answer +CREG: <n>,<stat>
+    updateSerial();
 
-  // Setup button and interupt
-  pinMode(buttonPin, INPUT_PULLUP);  // Set the button pin as input with internal pull-up resistor
-  attachInterrupt(digitalPinToInterrupt(buttonPin), buttonISR, FALLING);
+    Serial.write("Querying battery status...\n");
+    sim800l.println("AT+CBC"); // Querry battery status
+    updateSerial();
+
+    // Blink LED twice at the end of boot sequence
+    blink(200);
+    blink(200);
+    blink(200);
+  }
+
+  // TODO: use ANY_LOW if pull-up
+  esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+
+  Serial.println("Going to sleep now");
+  esp_deep_sleep_start();
+  Serial.println("This will never be printed");
 }
 
 void loop()
 {
-  // Check if the button was pressed
-  if (buttonPressed) {
-    Serial.println("Button Pressed!");
-    call();
-    blinkForBattery();
-    buttonPressed = false;  // Call() is blocking so all button press that happened during call() are ignored
-  }
+  // Never called
 }
 
 void blink(const int millis)
@@ -131,15 +158,4 @@ void call()
   Serial.write("Hanging up...\n");
   sim800l.println("ATH"); //hang up
   updateSerial();
-}
-
-void buttonISR() 
-{
-  unsigned long currentTime = millis();
-  // Debounce logic
-  if((currentTime - lastDebounceTime) > debounceDelay)
-  {
-    buttonPressed = true;
-    lastDebounceTime = currentTime;
-  }
 }

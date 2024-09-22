@@ -2,9 +2,6 @@
 Automate calls using sim800l module and [DFRobot Beetle_ESP32_C6](https://wiki.dfrobot.com/SKU_DFR1117_Beetle_ESP32_C6)
 
 ## Next steps
-- Check power consumption
-- Check USB to battery refill
-- Call button rather than at boot
 - LEDs
 - 3D casing design
 

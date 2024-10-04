@@ -7,6 +7,9 @@ HardwareSerial sim800l(1); // RX, TX
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 
+const int RX_PIN_UNUSED_ON_BOARD = 16;
+const int TX_PIN_UNUSED_ON_BOARD = 17;
+
 /// Button
 #define BTN_GPIO GPIO_NUM_6
 
@@ -27,9 +30,14 @@ void setup()
    *
   */
 
+  blink(500);
   /// On-board led
   pinMode(led, OUTPUT);
 
+  //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires
+  pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
+  pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
+  
   /// Btn
   pinMode(BTN_GPIO, INPUT_PULLDOWN);
   
@@ -37,19 +45,17 @@ void setup()
   {
     blink(1000);
   }
-  bootCount++;
+  //bootCount++; // do it later
 
   /// Battery check
   analogReadResolution(12);
 
   // Setup Serial communications
   Serial.begin(115200); // Serial monitor comm
+  Serial.write("Serial initialized\n");
+  Serial.write("Initializing SIM800L ...");
   sim800l.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Works with HardwareSerial(1)
-
-  if(bootCount > 0 )
-  {
-    call();
-  }
+  Serial.write("done\n");
 
   if (bootCount == 0)
   {
@@ -85,10 +91,20 @@ void setup()
     blink(200);
   }
 
+  bootCount++;
+
+  if(bootCount > 0 )
+  {
+    Wake_up_sim800L();
+    call();
+  }
+
   // TODO: use ANY_LOW if pull-up
   esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
 
   Serial.println("Going to sleep now");
+  Sleep_sim800L();
+  // reminder : COM port is disabled, so board does show disconnected in IDE
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
 }
@@ -96,6 +112,21 @@ void setup()
 void loop()
 {
   // Never called
+}
+
+// Sleep mode 2 : https://www.raviyp.com/223-sim900-sim800-sleep-mode-at-commands/
+// RF OFF : datasheet page 26, section 4.3
+void Sleep_sim800L()
+{
+  sim800l.println("AT+CFUN=4"); // RF off
+  sim800l.println("AT+CSCLK=2"); // sleep mode 2
+}
+
+void Wake_up_sim800L()
+{
+  sim800l.println("AT"); // dummy data
+  sim800l.println("AT+CSCLK=0"); // go out from sleep mode 2
+  sim800l.println("AT+CFUN=1"); // normal function, wake up RF
 }
 
 void blink(const int millis)
@@ -151,7 +182,7 @@ void call()
 {
   // CALL
   Serial.write("Calling...\n");
-  sim800l.println("ATD+ +32498341934;");
+  sim800l.println("ATD+ +32475896931;");
   updateSerial();
   delay(20000); // wait for 20 seconds
 

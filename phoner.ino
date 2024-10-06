@@ -97,16 +97,17 @@ void setup()
   if(bootCount > 0 )
   {
     wake_up_sim800L();
-    call();
+    Serial.println("Who do you call ?");
+    //call();
   }
 
   Serial.println("Going to sleep now");
   sleep_sim800L();
-  // // TODO: use ANY_LOW if pull-up
-  // esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
-  // // reminder : COM port is disabled, so board does show disconnected in IDE
-  // esp_deep_sleep_start();
-  // Serial.println("This will never be printed");
+  // TODO: use ANY_LOW if pull-up
+  esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+  // reminder : COM port is disabled, so board does show disconnected in IDE
+  esp_deep_sleep_start();
+  Serial.println("This will never be printed");
 }
 
 void loop()

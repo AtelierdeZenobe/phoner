@@ -100,14 +100,13 @@ void setup()
     call();
   }
 
-  // TODO: use ANY_LOW if pull-up
-  esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
-
   Serial.println("Going to sleep now");
   sleep_sim800L();
-  // reminder : COM port is disabled, so board does show disconnected in IDE
-  esp_deep_sleep_start();
-  Serial.println("This will never be printed");
+  // // TODO: use ANY_LOW if pull-up
+  // esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+  // // reminder : COM port is disabled, so board does show disconnected in IDE
+  // esp_deep_sleep_start();
+  // Serial.println("This will never be printed");
 }
 
 void loop()
@@ -119,15 +118,26 @@ void loop()
 // RF OFF : datasheet page 26, section 4.3
 void sleep_sim800L()
 {
+  Serial.println("Set RF off");
   sim800l.println("AT+CFUN=4"); // RF off
+  updateSerial(); // OK is expected
+  Serial.println("Set sleep mode 2");
   sim800l.println("AT+CSCLK=2"); // sleep mode 2
+  updateSerial(); // OK is expected
+  delay(5000); // wait for at least 5s without UART, on air or IO INTR
+  // May check using AT+CFUN? and AT+CSCLK?
 }
 
 void wake_up_sim800L()
 {
+  Serial.println("Wake up SIM800L");
   sim800l.println("AT"); // dummy data
+  Serial.println("Disable sleep mode 2");
   sim800l.println("AT+CSCLK=0"); // go out from sleep mode 2
+  updateSerial(); // OK is expected
   sim800l.println("AT+CFUN=1"); // normal function, wake up RF
+  updateSerial(); // OK is expected
+  // May check using AT+CFUN? and AT+CSCLK?  
 }
 
 void blink(const int millis)

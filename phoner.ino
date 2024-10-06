@@ -7,6 +7,7 @@ HardwareSerial sim800l(1); // RX, TX
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 
+// These pins are connected on the PCB, but not used for the moment => define as inputs
 const int RX_PIN_UNUSED_ON_BOARD = 16;
 const int TX_PIN_UNUSED_ON_BOARD = 17;
 
@@ -34,7 +35,7 @@ void setup()
   /// On-board led
   pinMode(led, OUTPUT);
 
-  //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires
+  //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
   pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
   pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
   
@@ -95,7 +96,7 @@ void setup()
 
   if(bootCount > 0 )
   {
-    Wake_up_sim800L();
+    wake_up_sim800L();
     call();
   }
 
@@ -103,7 +104,7 @@ void setup()
   esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
 
   Serial.println("Going to sleep now");
-  Sleep_sim800L();
+  sleep_sim800L();
   // reminder : COM port is disabled, so board does show disconnected in IDE
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
@@ -116,13 +117,13 @@ void loop()
 
 // Sleep mode 2 : https://www.raviyp.com/223-sim900-sim800-sleep-mode-at-commands/
 // RF OFF : datasheet page 26, section 4.3
-void Sleep_sim800L()
+void sleep_sim800L()
 {
   sim800l.println("AT+CFUN=4"); // RF off
   sim800l.println("AT+CSCLK=2"); // sleep mode 2
 }
 
-void Wake_up_sim800L()
+void wake_up_sim800L()
 {
   sim800l.println("AT"); // dummy data
   sim800l.println("AT+CSCLK=0"); // go out from sleep mode 2

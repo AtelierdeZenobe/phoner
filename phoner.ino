@@ -1,5 +1,19 @@
+// Tests done
+// - check deepleep -> update some code, lib
+// - check SIM in sleep -> if do not define CALL_FRED, that's ok !!
+//                         if        define CALL_FRED, that's not ok !! I may get the call but SIM800L does not sleep after
+// It's so weird, not stable from test to test
+// Definetely need to check answer from SIM, retry if not the expected answer
+// Ok it works !
+
+// RST pin is HIGH -> SIM on
+// DTR pin is LOW  -> com' UART active (used for sleep mode 1)
+// use Sleep mode 2
+// put some delay when sending AT CFUN and CSCLK to make sure I got an OK from sim
+
 /// Deepsleep
-#include "esp_sleep.h"
+//#include "esp_sleep.h"
+#include "driver/rtc_io.h" // see https://randomnerdtutorials.com/esp32-deep-sleep-arduino-ide-wake-up-sources/
 
 /// Sim800l comm
 #include <HardwareSerial.h>
@@ -7,12 +21,22 @@ HardwareSerial sim800l(1); // RX, TX
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 
+#define CALL_FRED 1
+#define SLEEP_MODE 2 // 1 (using DTR pin) or 2
+
 // These pins are connected on the PCB, but not used for the moment => define as inputs
 const int RX_PIN_UNUSED_ON_BOARD = 16;
 const int TX_PIN_UNUSED_ON_BOARD = 17;
 
 /// Button
-#define BTN_GPIO GPIO_NUM_6
+#define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32 /!\ used for RED LED on PCB
+
+/// RST pin - routed on PCB
+#define RST_GPIO GPIO_NUM_7
+
+/// DTR pin - external wire
+#define DTR_GPIO GPIO_NUM_19
+
 
 /// Battery
 const int VBAT_PIN = 0;
@@ -34,37 +58,50 @@ void setup()
   blink(500);
   /// On-board led
   pinMode(led, OUTPUT);
-
+  pinMode(RST_GPIO,OUTPUT);
+  pinMode(DTR_GPIO,OUTPUT);
+  
   //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
   pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
   pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
   
   /// Btn
-  pinMode(BTN_GPIO, INPUT_PULLDOWN);
-  
+  pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
+                                     // change input arg of deep sleep function esp_sleep_enable_ext1_wakeup accordingly
+                                     // it seems that a pullup button is better, the wake up condition on HIGH input is better
+
+  digitalWrite(DTR_GPIO,LOW);
+  digitalWrite(RST_GPIO,HIGH);
+  delay(100);
+
+  /// Battery check
+  analogReadResolution(12);
+
+  // Setup Serial communications
+  Serial.begin(9600); // Serial monitor comm
+  Serial.write("Serial initialized\n");
+
+  Serial.print("Bootcount = ");
+  Serial.println(bootCount);
   for(int i=0; i<bootCount; i++)
   {
     blink(1000);
   }
   //bootCount++; // do it later
 
-  /// Battery check
-  analogReadResolution(12);
-
-  // Setup Serial communications
-  Serial.begin(115200); // Serial monitor comm
-  Serial.write("Serial initialized\n");
+  // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
   sim800l.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Works with HardwareSerial(1)
   Serial.write("done\n");
-
+  
   if (bootCount == 0)
   {
-    // Setup sim800l module
+    // hard reset module SIM800L with pin RST
+    //resetSIM800L();
     Serial.write("Starting handshake...\n");
-    sim800l.println("AT"); //Once the handshake test is successful, it will back to OK
+    sim800l.println("AT"); //Autobaud, Once the handshake test is successful, it will back to OK
     updateSerial();
-    delay(10000);
+    delay(2000); // why 10 seconds ?
 
     Serial.write("Signal quality test...\n");
     sim800l.println("AT+CSQ"); //Signal quality test, value range is 0-31 , 31 is the best
@@ -98,13 +135,20 @@ void setup()
   {
     wake_up_sim800L();
     Serial.println("Who do you call ?");
-    //call();
+    call();
   }
 
+  Serial.println("");
   Serial.println("Going to sleep now");
   sleep_sim800L();
   // TODO: use ANY_LOW if pull-up
+  // https://randomnerdtutorials.com/esp32-deep-sleep-arduino-ide-wake-up-sources/
   esp_sleep_enable_ext1_wakeup((1ULL << BTN_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+  // esp_sleep_enable_ext0_wakeup(BTN_GPIO, 1); // wake up if BTN pressed 
+                                                // idt does not work ?? https://github.com/espressif/esp-idf/issues/11932
+  rtc_gpio_pulldown_en(BTN_GPIO);  // GPIO6 is tie to GND in order to wake up in HIGH
+  rtc_gpio_pullup_dis(BTN_GPIO);   // Disable PULL_UP in order to allow it to wakeup on HIGH
+
   // reminder : COM port is disabled, so board does show disconnected in IDE
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
@@ -115,30 +159,76 @@ void loop()
   // Never called
 }
 
+void resetSIM800L()
+{
+  digitalWrite(RST_GPIO,HIGH);
+  delay(200);
+  digitalWrite(RST_GPIO,LOW); // put this pin LOW for (at least) 100ms for a hard reset
+  delay(200);
+  digitalWrite(RST_GPIO,HIGH);
+  delay(200);
+}
 // Sleep mode 2 : https://www.raviyp.com/223-sim900-sim800-sleep-mode-at-commands/
 // RF OFF : datasheet page 26, section 4.3
 void sleep_sim800L()
 {
   Serial.println("Set RF off");
-  sim800l.println("AT+CFUN=4"); // RF off
+  delay(100); // to check, sometimes, I do not have a feedback about the next AT command which is crucial for RF off
+  sim800l.println("AT+CFUN=4"); // RF off with reset MT
   updateSerial(); // OK is expected
-  Serial.println("Set sleep mode 2");
-  sim800l.println("AT+CSCLK=2"); // sleep mode 2
-  updateSerial(); // OK is expected
-  delay(5000); // wait for at least 5s without UART, on air or IO INTR
-  // May check using AT+CFUN? and AT+CSCLK?
+  delay(5000); // should reply within 10 sec max according to AT CFUN page 96
+  if (SLEEP_MODE == 1)
+  {
+    Serial.println("\nSet sleep mode 1");
+    sim800l.println("AT+CSCLK=1"); // sleep mode 1, actually, need just once
+                                   // afterwards, just use the DTR pin
+    updateSerial(); // OK is expected
+    delay(100);
+    digitalWrite(DTR_GPIO,HIGH); // put high for sleep mode
+    delay(100);
+  }
+  else if (SLEEP_MODE == 2)
+  {
+    Serial.println("\nSet sleep mode 2");
+    sim800l.println("AT+CSCLK=2"); // sleep mode 2
+    updateSerial(); // OK is expected
+    delay(5000); // wait for at least 5s without UART, on air or IO INTR
+    // 
+  }
+  else 
+  {
+    // no SLEEP mode
+  }
+  
 }
 
 void wake_up_sim800L()
 {
   Serial.println("Wake up SIM800L");
   sim800l.println("AT"); // dummy data
-  Serial.println("Disable sleep mode 2");
-  sim800l.println("AT+CSCLK=0"); // go out from sleep mode 2
-  updateSerial(); // OK is expected
+  delay(200); // datasheet AT command page 153, note 2 : apply a delay of (at least) 100ms between dummy/waking data and AT command
+  Serial.println("\nDisable sleep mode");
+  if (SLEEP_MODE == 1)
+  {
+    digitalWrite(DTR_GPIO,LOW);
+    delay(100); // UART should be ready after 50ms
+  }
+  else if (SLEEP_MODE == 2)
+  {
+    sim800l.println("AT+CSCLK=0"); // go out from sleep mode 2
+    updateSerial(); // OK is expected
+    delay(5000); // wait for at least 5s without UART, on air or IO INTR
+    // 
+  }
+  else 
+  {
+    // no SLEEP mode
+  }
+  
   sim800l.println("AT+CFUN=1"); // normal function, wake up RF
   updateSerial(); // OK is expected
-  // May check using AT+CFUN? and AT+CSCLK?  
+  // May check using AT+CFUN? and AT+CSCLK?
+  delay(5000); // should reply within 10 sec max according to AT CFUN page 96
 }
 
 void blink(const int millis)
@@ -179,7 +269,7 @@ void blinkForBattery()
 
 void updateSerial()
 {
-  delay(500);
+  delay(500); // wait for any incoming data
   while (Serial.available()) 
   {
     sim800l.write(Serial.read());//Forward what Serial received to Software Serial Port
@@ -194,9 +284,20 @@ void call()
 {
   // CALL
   Serial.write("Calling...\n");
+#ifdef CALL_FRED
   sim800l.println("ATD+ +32475896931;");
   updateSerial();
-  delay(20000); // wait for 20 seconds
+#else
+  Serial.write("Fake call :) \n");  
+#endif
+  Serial.print("waiting 20 sec ");
+  for (int n_loop=0;n_loop<20;n_loop++)
+  {
+    delay(1000); // wait
+    Serial.print(".");
+  }
+  Serial.println("");
+  // better to wait for a reply or a connection beforing hanging up ??
 
   Serial.write("Hanging up...\n");
   sim800l.println("ATH"); //hang up

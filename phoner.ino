@@ -26,8 +26,8 @@
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-#define PHONER_BOARD_V1
-//#define PHONER_BOARD_V2 // must be tested !!
+//#define PHONER_BOARD_V1
+#define PHONER_BOARD_V2 // must be tested !!
 
 #ifdef PHONER_BOARD_V1
 const int RX_PIN = 4;
@@ -99,9 +99,11 @@ void setup()
   pinMode(RST_GPIO,OUTPUT);
   pinMode(DTR_GPIO,OUTPUT);
   
+  #ifdef PHONER_BOARD_V1
   //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
   pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
   pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
+  #endif
   
   /// Btn
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
@@ -125,8 +127,6 @@ void setup()
   #elifdef PHONER_BOARD_V2
   Serial.write("Use Phoner Board v1.2 \n");
   #endif
-
-  
 
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
@@ -159,7 +159,7 @@ void loop()
     while (!call() && icalls < NCALLS)
     {
       Serial.println("Error when calling, try once again");
-      blink_RGB(100,10,HIGH,LOW,HIGH); // blink magenta :)
+      //blink_RGB(100,10,HIGH,LOW,HIGH); // blink magenta :)
       icalls++;
     }
     if (icalls == NCALLS)
@@ -318,7 +318,8 @@ bool call_success = false;
 bool hang_success = false;
 
 #ifdef CALL_FRED
-  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32475896931;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32498341934;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  //call_success=sendATCommand(sim800l,"Calling...","ATD+ +32494196685;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
 #else
   Serial.write("Calling...\n");
   Serial.write("Fake call :) \n");
@@ -437,14 +438,9 @@ void blinkForBattery()
   // Green  : >50%    of [3.5-4.2] : voltage>3.85 V
   // Yellow : 25-50%  of [3.5-4.2] : 3.675 V <= voltage <= 3.85 V 
   // Red    : <25%    of [3.5-4.2] : voltage < 3.675 V
-  if (voltage > 3.85)
-    //blink_RGB(500,3,LOW,HIGH,LOW);
-    blink(500,voltage_deca);
-  else if ((3.675 <= voltage) && (3.85 >= voltage))
-    //blink_RGB(300,5,HIGH,HIGH,LOW);
-    blink(300,voltage_deca*2);
-  else
-    blink(100,voltage_deca*3);
-    //blink_RGB(100,15,HIGH,LOW,LOW);
+  if ( (voltage*2) < 2.9 ) //Yolo
+  {
+    blink_RGB(300,5,HIGH,LOW,LOW);
+  }
 }
 

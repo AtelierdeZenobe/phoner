@@ -17,6 +17,7 @@
 /// Sim800l comm
 #include <HardwareSerial.h>
 
+//TODO: define number to call instead, using special value for dummy
 #define CALL_FRED // comment or not to make a fake call or call fred
 
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
@@ -26,9 +27,10 @@
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-#define PHONER_BOARD_V1
-//#define PHONER_BOARD_V2 // must be tested !!
+//#define PHONER_BOARD_V1
+#define PHONER_BOARD_V2
 
+//TODO only track latest board on main (board_v1 tracked in its own branch)
 #ifdef PHONER_BOARD_V1
 const int RX_PIN = 4;
 const int TX_PIN = 5;
@@ -99,10 +101,12 @@ void setup()
   pinMode(RST_GPIO,OUTPUT);
   pinMode(DTR_GPIO,OUTPUT);
   
+  #ifdef PHONER_BOARD_V1
   //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
   pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
   pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
-  
+  #endif
+
   /// Btn
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
                                      // change input arg of deep sleep function esp_sleep_enable_ext1_wakeup accordingly
@@ -126,8 +130,6 @@ void setup()
   Serial.write("Use Phoner Board v1.2 \n");
   #endif
 
-  
-
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
   sim800l.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Works with HardwareSerial(1)
@@ -137,21 +139,7 @@ void setup()
 
 void loop()
 {
-  blinkForBattery();
-  // Bootcount counts the number of boot :D
-  Serial.print("Bootcount = ");
-  Serial.println(bootCount);
-  blink(500,bootCount); // for debug purpose
-  
-  if (bootCount == 0)
-  {
-    start_sim800L();
-    // Blink LED at the end of boot sequence
-    blink(100,3);
-  }
-
-  bootCount++;
-  if(bootCount > 0 )
+  if(bootCount++ > 0 )
   {
     wake_up_sim800L();
     int NCALLS=2;
@@ -159,13 +147,11 @@ void loop()
     while (!call() && icalls < NCALLS)
     {
       Serial.println("Error when calling, try once again");
-      blink_RGB(100,10,HIGH,LOW,HIGH); // blink magenta :)
       icalls++;
     }
     if (icalls == NCALLS)
     {
       Serial.println("Cannot call at all ! What to do ?");
-      // there was an error when calling, what to do ?
     }
   }
 
@@ -407,44 +393,22 @@ void blinkForBattery()
   rawValue = rawValue/NMES; // average of a bunch of measures
   
   // Vref is 3.3V so 4095 correspond to 3.3V.
-  float voltage = (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
-
-  // The actual max battery voltage is around 4.1V
-  // The critical battery voltage is below 3.5V
-  // The mesurement is actually VBAT/2 => MAX = 2.05 and min = 1.75
-
-  // int voltage_deca = voltage * 10/ 3.3; // Scale to [0-10] to blink up to 10 times, representing the current voltage
-  // Now blink up to 10 times, showing more precision
-  // It blinks 7 times when full. In theory, full = 4.2V -> 2.1V measured -> 0.63/10 -> blink 6 times.
-  // It blinks TBC times when on battery for a lil while. In theory 3.7V -> 1.85V measured -> 0.56/10 -> blink 5 times.
-  //int voltage_deca_precise = (voltage-1) * 10;
-  // for(int i=0; i < voltage_deca_precise; ++i)
-  // {
-  //   blink(500,1);
-  // }
+  float voltage = 2 * (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
   
   Serial.print("Battery Voltage: ");
-  Serial.print(voltage*2); // VBAT = measured_voltage * 2
+  Serial.print(voltage); // VBAT = measured_voltage * 2
   Serial.println(" V");
-
-  int voltage_deca = voltage * 2 * 10 / 4.2 ; // Scale to [0-10] to blink up to 10 times, representing the current voltage
-  // Now blink up to 10 times, showing more precision
-  // It blinks 10 times when full. In theory, full = 4.2V -> 2.1V measured -> 0.63/10 -> blink 6 times.
-  // It blinks TBC times when on battery for a lil while. In theory 3.7V -> 1.85V measured -> 0.56/10 -> blink 5 times.
-  // blink(500,voltage_deca);
   
   // use the RGD LED instead
   // Green  : >50%    of [3.5-4.2] : voltage>3.85 V
   // Yellow : 25-50%  of [3.5-4.2] : 3.675 V <= voltage <= 3.85 V 
   // Red    : <25%    of [3.5-4.2] : voltage < 3.675 V
-  if (voltage > 3.85)
-    //blink_RGB(500,3,LOW,HIGH,LOW);
-    blink(500,voltage_deca);
-  else if ((3.675 <= voltage) && (3.85 >= voltage))
-    //blink_RGB(300,5,HIGH,HIGH,LOW);
-    blink(300,voltage_deca*2);
-  else
-    blink(100,voltage_deca*3);
-    //blink_RGB(100,15,HIGH,LOW,LOW);
+
+  // TODO: temporary: led RGB is only R due to short
+  // Theorical minimal voltage is 3.4V but the batery measurement seems lower than actual battery ? TBC
+  if ( (voltage*2) < 2.9 ) //Yolo
+  {
+    blink_RGB(300,5,HIGH,LOW,LOW);
+  }
 }
 

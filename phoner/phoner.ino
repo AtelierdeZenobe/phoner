@@ -22,14 +22,10 @@
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
 #define SHORT_DELAY_WAIT_SIM 200  
-#define TIMEOUT_SIM 3000          // used if USE_SIMPLE_DELAY = false
+#define TIMEOUT_SIM 20000          // used if USE_SIMPLE_DELAY = false
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-#define PHONER_BOARD_V1
-//#define PHONER_BOARD_V2 // must be tested !!
-
-#ifdef PHONER_BOARD_V1
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 /// Button
@@ -42,29 +38,11 @@ const int TX_PIN_UNUSED_ON_BOARD = 17;
 /// DTR pin - external wire
 #define DTR_GPIO GPIO_NUM_19
 // RGB LED
-#define LED_R GPIO_NUM_19
-#define LED_G GPIO_NUM_16 // actually routed on pin6 but BTN is plugged on that pin finally
-#define LED_B GPIO_NUM_20
+//#define LED_R GPIO_NUM_19
+#define LED_G GPIO_NUM_20 // actually routed on pin6 but BTN is plugged on that pin finally
+#define LED_B GPIO_NUM_19
 // LED2
 #define LED2 GPIO_NUM_23
-
-#elifdef PHONER_BOARD_V2 // everything routed on PCB
-const int RX_PIN = 4;
-const int TX_PIN = 5;
-/// Button
-#define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32
-/// RST pin
-#define RST_GPIO GPIO_NUM_21
-/// DTR pin
-#define DTR_GPIO GPIO_NUM_7
-// RGB LED
-#define LED_R GPIO_NUM_20
-#define LED_G GPIO_NUM_19
-#define LED_B GPIO_NUM_16
-// LED2
-#define LED2 GPIO_NUM_23
-
-#endif
 
 // Serial HW com' with SIM800L
 HardwareSerial sim800l(1); // RX, TX pins defined above
@@ -79,8 +57,16 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
+enum OPERATION_RESULT
+{
+  ONGOING,
+  OK,
+  TIMEOUT,
+  WRONG_ANSWER
+};
+
 // need function prototype
-bool sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
+OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
 
 void setup()
 { 
@@ -92,7 +78,7 @@ void setup()
   /// On-board led
   pinMode(led, OUTPUT);
   pinMode(LED2, OUTPUT);
-  pinMode(LED_R, OUTPUT);
+  //pinMode(LED_R, OUTPUT);
   pinMode(LED_G, OUTPUT);
   pinMode(LED_B, OUTPUT);
   
@@ -119,14 +105,16 @@ void setup()
 
   // Setup Serial communications
   Serial.begin(9600); // Serial monitor comm
-  Serial.write("Serial initialized\n");
-  #ifdef PHONER_BOARD_V1
-  Serial.write("Use Phoner Board v1.1 \n");
-  #elifdef PHONER_BOARD_V2
-  Serial.write("Use Phoner Board v1.2 \n");
-  #endif
+  Serial.write("Serial initialized, using board V1.1\n");
 
-  
+  // Not functional due to hw mistake -> Connect remove RED pad
+  //Serial.write("Red\n");
+  //blink_RGB(1000, 2, HIGH, LOW, LOW);
+  // Apparently fucked up soldering so green is short to gnd now
+  //Serial.write("Green\n");
+  //blink_RGB(1000, 2, LOW, HIGH, LOW);
+  Serial.write("Blue\n");
+  blink_RGB(1000, 2, LOW, LOW, HIGH);
 
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
@@ -137,35 +125,28 @@ void setup()
 
 void loop()
 {
-  blinkForBattery();
+  //blinkForBattery();
   // Bootcount counts the number of boot :D
   Serial.print("Bootcount = ");
   Serial.println(bootCount);
   blink(500,bootCount); // for debug purpose
   
-  if (bootCount == 0)
+  if (bootCount++ == 0)
   {
     start_sim800L();
     // Blink LED at the end of boot sequence
     blink(100,3);
   }
-
-  bootCount++;
-  if(bootCount > 0 )
+  else
   {
     wake_up_sim800L();
-    int NCALLS=2;
-    int icalls=0;
-    while (!call() && icalls < NCALLS)
+    if(call())
     {
-      Serial.println("Error when calling, try once again");
-      blink_RGB(100,10,HIGH,LOW,HIGH); // blink magenta :)
-      icalls++;
+      //blink_RGB(500, 3, LOW, HIGH, LOW);
     }
-    if (icalls == NCALLS)
+    else
     {
-      Serial.println("Cannot call at all ! What to do ?");
-      // there was an error when calling, what to do ?
+      blink_RGB(500, 3, HIGH, LOW, LOW);
     }
   }
 
@@ -205,36 +186,76 @@ void sleep_esp32()
 
 // Send and check AT Commeand
 // use : sendATCommand(sim800l,"Message for serial Monitor","AT","OK",DELAY_SLEEP_SIM)
-bool sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = USE_SIMPLE_DELAY, unsigned long delay_value = DELAY_WAIT_SIM) {
+OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = false, unsigned long delay_value = DELAY_WAIT_SIM) {
+    OPERATION_RESULT result = OPERATION_RESULT::ONGOING;
     serialSIM.println(command);
     if (use_delay)
     {
       updateSerial();
       delay(delay_value);
-      return true;
+      result = OPERATION_RESULT::OK;
     }
     else
     {
       unsigned long startTime = millis();
+      unsigned long elapsedTime = 0;
       String response = "";
 
-      while (millis() - startTime < timeout) {
-          while (serialSIM.available()) {
-              char c = serialSIM.read();
-              response += c;
-              // Vérifiez si la réponse attendue est contenue
-              if (response.indexOf(expectedResponse) != -1) {
-                  //Serial.println(String(message) + " Command " + String(command) + " success:\n" + response);
-                  Serial.println(String(message) + " Command " + String(command) + " success");
-                  return true;
-              }
+      while ( result==OPERATION_RESULT::ONGOING )
+      {
+        elapsedTime =  millis() - startTime;
+        if( elapsedTime > timeout )
+        {
+          result = OPERATION_RESULT::TIMEOUT;
+        }
+        while (serialSIM.available() && result==OPERATION_RESULT::ONGOING)
+        {
+          char c = serialSIM.read();
+          response += c;
+          // Vérifiez si la réponse attendue est contenue
+          if (response.indexOf(expectedResponse) != -1)
+          {
+            result = OPERATION_RESULT::OK;
           }
-          delay(1); // it is ok because baudrate is set to 9600
+        }
+        //delay(1); // it is ok because baudrate is set to 9600x
       }
-      Serial.println(String(message) + " Command " + String(command) + " failed: " + response);
-      return false;
-      // What to do now ?
-
+      switch(result)
+      {
+        case OPERATION_RESULT::OK:
+        {
+          Serial.println(String(message) + " Command " + String(command) + " success");
+          Serial.println(response);
+          Serial.println(elapsedTime);
+          break;
+        }
+        case OPERATION_RESULT::ONGOING:
+        {
+          Serial.println(String(message) + " Command " + String(command) + " ONGOING");
+          Serial.println(response);
+          break;
+        }
+        case OPERATION_RESULT::TIMEOUT:
+        {
+          Serial.println(String(message) + " Command " + String(command) + " TIMEOUT");
+          Serial.println(response);
+          Serial.println(elapsedTime);
+          break;
+        }
+        case OPERATION_RESULT::WRONG_ANSWER:
+        {
+          Serial.println(String(message) + " Command " + String(command) + " WRONG ANSWER");
+          Serial.println(response);
+          break;
+        }
+        default:
+        {
+          Serial.println(String(message) + " Command " + String(command) + " DEFAULT");
+          Serial.println(response);
+          break;
+        }
+      }     
+      return result;
     }
 }
 
@@ -264,18 +285,18 @@ void sleep_sim800L()
 {
   Serial.println("");
   Serial.println("Going to sleep now");
-  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
-  delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
+  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK");
+  delay(2*DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
-    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK");
     delay(100);
     digitalWrite(DTR_GPIO,HIGH); // put high for sleep mode
     delay(100);
   }
   else if (SLEEP_MODE == 2)
   {
-    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK");
     delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
   }
   else 
@@ -314,11 +335,11 @@ bool call()
   Serial.println("Who do you call ?");
   // CALL
 
-bool call_success = false;
-bool hang_success = false;
+  bool call_success = false;
+  bool hang_success = false;
 
 #ifdef CALL_FRED
-  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32475896931;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32498341934;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
 #else
   Serial.write("Calling...\n");
   Serial.write("Fake call :) \n");
@@ -334,7 +355,7 @@ bool hang_success = false;
   // better to wait for a reply or a connection beforing hanging up ??
   hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
   // here, check if call and/or hanging are true
-  if (!(hang_success && call_success)) // a problem occurred -> blink or restart call ?
+  if ( (hang_success != OPERATION_RESULT::OK) || !call_success ) // a problem occurred -> blink or restart call ?
     return false;
   else
     return true;
@@ -376,17 +397,17 @@ void blink_RGB(const int millis,int N, unsigned char state_LEDR, unsigned char s
 {
   for (int i=0;i<N;i++)
   {
-    digitalWrite(LED_R, LOW);
+    //digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, LOW);
     digitalWrite(LED_B, LOW);
     
     delay(millis);
-    digitalWrite(LED_R, state_LEDR);
+    //digitalWrite(LED_R, state_LEDR);
     digitalWrite(LED_G, state_LEDG);
     digitalWrite(LED_B, state_LEDB);
     
     delay(millis);
-    digitalWrite(LED_R, LOW);
+    //digitalWrite(LED_R, LOW);
     digitalWrite(LED_G, LOW);
     digitalWrite(LED_B, LOW);
   }

@@ -17,7 +17,7 @@
 /// Sim800l comm
 #include <HardwareSerial.h>
 
-#define CALL_FRED // comment or not to make a fake call or call fred
+const char* PHONE_NUMBER = "+32498341934";
 
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
@@ -226,7 +226,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
         {
           Serial.println(String(message) + " Command " + String(command) + " success");
           Serial.println(response);
-          Serial.println(elapsedTime);
+          //Serial.println(elapsedTime);
           break;
         }
         case OPERATION_RESULT::ONGOING:
@@ -239,7 +239,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
         {
           Serial.println(String(message) + " Command " + String(command) + " TIMEOUT");
           Serial.println(response);
-          Serial.println(elapsedTime);
+          Serial.println("elapsed time: " + String(elapsedTime));
           break;
         }
         case OPERATION_RESULT::WRONG_ANSWER:
@@ -286,7 +286,7 @@ void sleep_sim800L()
   Serial.println("");
   Serial.println("Going to sleep now");
   sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK");
-  delay(2*DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
+  //delay(2*DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
     sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK");
@@ -338,13 +338,16 @@ bool call()
   bool call_success = false;
   bool hang_success = false;
 
-#ifdef CALL_FRED
-  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32498341934;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
-#else
-  Serial.write("Calling...\n");
-  Serial.write("Fake call :) \n");
-  call_success=true; 
-#endif
+  if (strlen(PHONE_NUMBER) >= 9)
+  {
+    call_success=sendATCommand(sim800l,"Calling...",(String("ATD") + PHONE_NUMBER + ";").c_str(),"OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  }
+  else
+  {
+    Serial.write("Size of phone number < 9 => Fake call...\n");
+    call_success=true; 
+  }
+
   Serial.print("waiting 20 sec ");
   for (int n_loop=0;n_loop<20;n_loop++)
   {
@@ -416,6 +419,7 @@ void blink_RGB(const int millis,int N, unsigned char state_LEDR, unsigned char s
 
 void blinkForBattery()
 {
+  Serial.println("Checking battery. USB is ~3.45");
   // ADC is 12 bits precision -> 0 to 4095
   // int rawValue = analogRead(VBAT_PIN); // Voltage from ADC [0;4095]
   int NMES = 4; // no more than 16
@@ -428,7 +432,7 @@ void blinkForBattery()
   rawValue = rawValue/NMES; // average of a bunch of measures
   
   // Vref is 3.3V so 4095 correspond to 3.3V.
-  float voltage = (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
+  float voltage = 2 * (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
 
   // The actual max battery voltage is around 4.1V
   // The critical battery voltage is below 3.5V
@@ -445,10 +449,10 @@ void blinkForBattery()
   // }
   
   Serial.print("Battery Voltage: ");
-  Serial.print(voltage*2); // VBAT = measured_voltage * 2
+  Serial.print(voltage); // VBAT = measured_voltage * 2
   Serial.println(" V");
 
-  int voltage_deca = voltage * 2 * 10 / 4.2 ; // Scale to [0-10] to blink up to 10 times, representing the current voltage
+  int voltage_deca = voltage * 10 / 4.2 ; // Scale to [0-10] to blink up to 10 times, representing the current voltage
   // Now blink up to 10 times, showing more precision
   // It blinks 10 times when full. In theory, full = 4.2V -> 2.1V measured -> 0.63/10 -> blink 6 times.
   // It blinks TBC times when on battery for a lil while. In theory 3.7V -> 1.85V measured -> 0.56/10 -> blink 5 times.

@@ -129,7 +129,6 @@ void loop()
   // Bootcount counts the number of boot :D
   Serial.print("Bootcount = ");
   Serial.println(bootCount);
-  blink(500,bootCount); // for debug purpose
   
   if (bootCount++ == 0)
   {

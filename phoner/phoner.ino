@@ -89,7 +89,7 @@ enum OPERATION_RESULT
 };
 
 // need function prototype
-OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
+OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = USE_SIMPLE_DELAY, unsigned long delay_value = DELAY_WAIT_SIM);
 
 void setup()
 { 
@@ -159,6 +159,8 @@ void loop()
   else
   {
     wake_up_sim800L();
+    sendATCommand(sim800l,"Starting handshake...","AT","OK"); // Starting handshake
+    //start_sim800L();
     if(!call())
     {
       blink_RGB(500, 3, HIGH, LOW, LOW);
@@ -201,7 +203,7 @@ void sleep_esp32()
 
 // Send and check AT Commeand
 // use : sendATCommand(sim800l,"Message for serial Monitor","AT","OK",DELAY_SLEEP_SIM)
-OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = USE_SIMPLE_DELAY, unsigned long delay_value = DELAY_WAIT_SIM)
+OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value)
 {
   OPERATION_RESULT result = OPERATION_RESULT::ONGOING;
   serialSIM.println(command);
@@ -243,7 +245,6 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
       {
         Serial.println(String(message) + " Command " + String(command) + " success");
         Serial.println(response);
-        Serial.println(elapsedTime);
         break;
       }
       case OPERATION_RESULT::ONGOING:
@@ -272,6 +273,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
         break;
       }
     }     
+    delay(DELAY_WAIT_SIM);
     return result;
   }
 }
@@ -281,10 +283,12 @@ void start_sim800L()
   sendATCommand(sim800l,"Starting handshake...","AT","OK"); // Starting handshake
   sendATCommand(sim800l,"Signal quality test...","AT+CSQ","OK"); //Signal quality test, value range is 0-31 , 31 is the best
   sendATCommand(sim800l,"Reading SIM information...","AT+CCID","OK"); //Read SIM information to confirm whether the SIM is plugged
-  //sendATCommand(sim800l,"Selecting mobile operator...","AT+COPS=0,2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
+  //sendATCommand(sim800l,"Selecting mobile operator...","AT+COPS=0,2","OK"); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
   // there is an error here, is it worth sending this command ? So comment it
   sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK"); //check the network registration status. Will answer +CREG: <n>,<stat>
   sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK"); // Querry battery status
+  // will spontaneously issue CLCC: INDEX, DIRECTION(0), STAT(2->3->0->6), MODE(0), MNT(0), NUMBER, TYPE(145), ALPHA("")
+  sendATCommand(sim800l,"Enable call progression indication...","AT+CLCC=1","OK"); // Querry battery status
     
 }
 void reset_sim800L()

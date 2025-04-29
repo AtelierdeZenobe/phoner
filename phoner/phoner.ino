@@ -17,8 +17,7 @@
 /// Sim800l comm
 #include <HardwareSerial.h>
 
-//TODO: define number to call instead, using special value for dummy
-#define CALL_FRED // comment or not to make a fake call or call fred
+const char* PHONE_NUMBER = "+32498341934";
 
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
@@ -356,13 +355,16 @@ bool call()
   OPERATION_RESULT call_success;
   OPERATION_RESULT hang_success;
 
-#ifdef CALL_FRED
-  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32498341934;","OK");
-#else
-  Serial.write("Calling...\n");
-  Serial.write("Fake call :) \n");
-  call_success=true; 
-#endif
+  if (strlen(PHONE_NUMBER) >= 9)
+  {
+    call_success=sendATCommand(sim800l,"Calling...",(String("ATD") + PHONE_NUMBER + ";").c_str(),"OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  }
+  else
+  {
+    Serial.write("Size of phone number < 9 => Fake call...\n");
+    call_success=OPERATION_RESULT::OK; 
+  }
+
   Serial.print("waiting 20 sec ");
   for (int n_loop=0;n_loop<20;n_loop++)
   {

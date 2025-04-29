@@ -23,7 +23,7 @@
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
 #define SHORT_DELAY_WAIT_SIM 200  
-#define TIMEOUT_SIM 3000          // used if USE_SIMPLE_DELAY = false
+#define TIMEOUT_SIM 15000          // used if USE_SIMPLE_DELAY = false
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
@@ -81,8 +81,16 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
+enum OPERATION_RESULT
+{
+  ONGOING,
+  OK,
+  TIMEOUT,
+  WRONG_ANSWER
+};
+
 // need function prototype
-bool sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
+OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
 
 void setup()
 { 
@@ -139,19 +147,22 @@ void setup()
 
 void loop()
 {
-  if(bootCount++ > 0 )
+  Serial.print("Bootcount = ");
+  Serial.println(bootCount);
+  blink(500,bootCount); // for debug purpose
+  blinkForBattery();
+  if (bootCount++ == 0)
+  {
+    start_sim800L();
+    // Blink LED at the end of boot sequence
+    blink(100,3);
+  }
+  else
   {
     wake_up_sim800L();
-    int NCALLS=2;
-    int icalls=0;
-    while (!call() && icalls < NCALLS)
+    if(!call())
     {
-      Serial.println("Error when calling, try once again");
-      icalls++;
-    }
-    if (icalls == NCALLS)
-    {
-      Serial.println("Cannot call at all ! What to do ?");
+      blink_RGB(500, 3, HIGH, LOW, LOW);
     }
   }
 
@@ -191,48 +202,90 @@ void sleep_esp32()
 
 // Send and check AT Commeand
 // use : sendATCommand(sim800l,"Message for serial Monitor","AT","OK",DELAY_SLEEP_SIM)
-bool sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = USE_SIMPLE_DELAY, unsigned long delay_value = DELAY_WAIT_SIM) {
-    serialSIM.println(command);
-    if (use_delay)
-    {
-      updateSerial();
-      delay(delay_value);
-      return true;
-    }
-    else
-    {
-      unsigned long startTime = millis();
-      String response = "";
+OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,const char *command, const char *expectedResponse, unsigned long timeout = TIMEOUT_SIM, bool use_delay = USE_SIMPLE_DELAY, unsigned long delay_value = DELAY_WAIT_SIM)
+{
+  OPERATION_RESULT result = OPERATION_RESULT::ONGOING;
+  serialSIM.println(command);
+  if (use_delay)
+  {
+    updateSerial();
+    delay(delay_value);
+    result = OPERATION_RESULT::OK;
+  }
+  else
+  {
+    unsigned long startTime = millis();
+    unsigned long elapsedTime = 0;
+    String response = "";
 
-      while (millis() - startTime < timeout) {
-          while (serialSIM.available()) {
-              char c = serialSIM.read();
-              response += c;
-              // Vérifiez si la réponse attendue est contenue
-              if (response.indexOf(expectedResponse) != -1) {
-                  //Serial.println(String(message) + " Command " + String(command) + " success:\n" + response);
-                  Serial.println(String(message) + " Command " + String(command) + " success");
-                  return true;
-              }
-          }
-          delay(1); // it is ok because baudrate is set to 9600
+    while ( result==OPERATION_RESULT::ONGOING )
+    {
+      elapsedTime =  millis() - startTime;
+      if( elapsedTime > timeout )
+      {
+        result = OPERATION_RESULT::TIMEOUT;
       }
-      Serial.println(String(message) + " Command " + String(command) + " failed: " + response);
-      return false;
-      // What to do now ?
-
+      while (serialSIM.available() && result==OPERATION_RESULT::ONGOING)
+      {
+        char c = serialSIM.read();
+        response += c;
+        // Vérifiez si la réponse attendue est contenue
+        if (response.indexOf(expectedResponse) != -1)
+        {
+          result = OPERATION_RESULT::OK;
+        }
+      }
+      //delay(1); // it is ok because baudrate is set to 9600x
     }
+
+    switch(result)
+    {
+      case OPERATION_RESULT::OK:
+      {
+        Serial.println(String(message) + " Command " + String(command) + " success");
+        Serial.println(response);
+        Serial.println(elapsedTime);
+        break;
+      }
+      case OPERATION_RESULT::ONGOING:
+      {
+        Serial.println(String(message) + " Command " + String(command) + " ONGOING");
+        Serial.println(response);
+        break;
+      }
+      case OPERATION_RESULT::TIMEOUT:
+      {
+        Serial.println(String(message) + " Command " + String(command) + " TIMEOUT");
+        Serial.println(response);
+        Serial.println(elapsedTime);
+        break;
+      }
+      case OPERATION_RESULT::WRONG_ANSWER:
+      {
+        Serial.println(String(message) + " Command " + String(command) + " WRONG ANSWER");
+        Serial.println(response);
+        break;
+      }
+      default:
+      {
+        Serial.println(String(message) + " Command " + String(command) + " DEFAULT");
+        Serial.println(response);
+        break;
+      }
+    }     
+    return result;
+  }
 }
 
 void start_sim800L()
 {
-  sendATCommand(sim800l,"Starting handshake...","AT","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,DELAY_WAIT_SIM); // Starting handshake
-  sendATCommand(sim800l,"Signal quality test...","AT+CSQ","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); //Signal quality test, value range is 0-31 , 31 is the best
-  sendATCommand(sim800l,"Reading SIM information...","AT+CCID","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); //Read SIM information to confirm whether the SIM is plugged
+  sendATCommand(sim800l,"Starting handshake...","AT","OK"); // Starting handshake
+  sendATCommand(sim800l,"Signal quality test...","AT+CSQ","OK"); //Signal quality test, value range is 0-31 , 31 is the best
+  sendATCommand(sim800l,"Reading SIM information...","AT+CCID","OK"); //Read SIM information to confirm whether the SIM is plugged
   //sendATCommand(sim800l,"Selecting mobile operator...","AT+COPS=0,2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
   // there is an error here, is it worth sending this command ? So comment it
-  sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); //check the network registration status. Will answer +CREG: <n>,<stat>
-  sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); // Querry battery status
+  sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK"); //check the network registration status. Will answer +CREG: <n>,<stat>
+  sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK"); // Querry battery status
     
 }
 void reset_sim800L()
@@ -250,18 +303,18 @@ void sleep_sim800L()
 {
   Serial.println("");
   Serial.println("Going to sleep now");
-  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK");
   delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
-    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK");
     delay(100);
     digitalWrite(DTR_GPIO,HIGH); // put high for sleep mode
     delay(100);
   }
   else if (SLEEP_MODE == 2)
   {
-    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK");
     delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
   }
   else 
@@ -284,14 +337,14 @@ void wake_up_sim800L()
   }
   else if (SLEEP_MODE == 2)
   {
-    sendATCommand(sim800l,"Wake up module SIM","AT+CSCLK=0","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    sendATCommand(sim800l,"Wake up module SIM","AT+CSCLK=0","OK");
     delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
   }
   else 
   {
     // no SLEEP mode
   }
-  sendATCommand(sim800l,"Wake up RF","AT+CFUN=1","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  sendATCommand(sim800l,"Wake up RF","AT+CFUN=1","OK");
   delay(DELAY_WAIT_SIM); // wait for a few seconds to let RF be ready
 }
 
@@ -300,11 +353,11 @@ bool call()
   Serial.println("Who do you call ?");
   // CALL
 
-bool call_success = false;
-bool hang_success = false;
+  OPERATION_RESULT call_success;
+  OPERATION_RESULT hang_success;
 
 #ifdef CALL_FRED
-  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32475896931;","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  call_success=sendATCommand(sim800l,"Calling...","ATD+ +32498341934;","OK");
 #else
   Serial.write("Calling...\n");
   Serial.write("Fake call :) \n");
@@ -318,9 +371,9 @@ bool hang_success = false;
   }
   Serial.println("");
   // better to wait for a reply or a connection beforing hanging up ??
-  hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK");
   // here, check if call and/or hanging are true
-  if (!(hang_success && call_success)) // a problem occurred -> blink or restart call ?
+  if ( (hang_success != OPERATION_RESULT::OK) && (call_success != OPERATION_RESULT::OK)) // a problem occurred -> blink or restart call ?
     return false;
   else
     return true;
@@ -376,7 +429,6 @@ void blink_RGB(const int millis,int N, unsigned char state_LEDR, unsigned char s
     digitalWrite(LED_G, LOW);
     digitalWrite(LED_B, LOW);
   }
-  
 }
 
 void blinkForBattery()
@@ -406,7 +458,7 @@ void blinkForBattery()
 
   // TODO: temporary: led RGB is only R due to short
   // Theorical minimal voltage is 3.4V but the batery measurement seems lower than actual battery ? TBC
-  if ( (voltage*2) < 2.9 ) //Yolo
+  if ( (voltage) < 2.9 ) //Yolo
   {
     blink_RGB(300,5,HIGH,LOW,LOW);
   }

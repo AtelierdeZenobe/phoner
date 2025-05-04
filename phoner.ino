@@ -22,12 +22,12 @@
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
 #define SHORT_DELAY_WAIT_SIM 200  
-#define TIMEOUT_SIM 3000          // used if USE_SIMPLE_DELAY = false
+#define TIMEOUT_SIM 5000          // used if USE_SIMPLE_DELAY = false
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-#define PHONER_BOARD_V1
-//#define PHONER_BOARD_V2 // must be tested !!
+// #define PHONER_BOARD_V1
+#define PHONER_BOARD_V2 // tested - ok !
 
 #ifdef PHONER_BOARD_V1
 const int RX_PIN = 4;
@@ -100,18 +100,21 @@ void setup()
   pinMode(DTR_GPIO,OUTPUT);
   
   //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
-  pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
-  pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
+  // pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
+  // pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
   
   /// Btn
+  
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
                                      // change input arg of deep sleep function esp_sleep_enable_ext1_wakeup accordingly
                                      // it seems that a pullup button is better, the wake up condition on HIGH input is better
-  
+  // rtc_gpio_pulldown_en(BTN_GPIO);  // GPIO6 is tie to GND in order to wake up in HIGH
+  // rtc_gpio_pullup_dis(BTN_GPIO);   // Disable PULL_UP in order to allow it to wakeup on HIGH
+ 
   /// Battery check
-  analogReadResolution(12);
   pinMode(VBAT_PIN, INPUT);
-
+  analogReadResolution(12);
+  
   // setup SIM800L pin digital level
   digitalWrite(DTR_GPIO,LOW);
   digitalWrite(RST_GPIO,HIGH);
@@ -264,7 +267,14 @@ void sleep_sim800L()
 {
   Serial.println("");
   Serial.println("Going to sleep now");
-  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  // sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+  // delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
+  // /!\ Sometimes, an error occurs with this command
+  // This one is really important for battery life
+  // So make a while and wait until done and get an "OK" reply from SIM800 - is it ok now ? 
+  while(!sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM)){
+    delay(SHORT_DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR)
+  }
   delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
@@ -275,8 +285,15 @@ void sleep_sim800L()
   }
   else if (SLEEP_MODE == 2)
   {
-    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
-    delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
+    // sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    // delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
+    // /!\  Sometimes, an error occurs with this command, like above
+    // This one is really important for battery life
+    // So make a while and wait until done and get an "OK" reply from SIM800 - is it ok now ?  
+    while(!sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM)){
+      delay(SHORT_DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR)
+    }
+    delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR)
   }
   else 
   {
@@ -407,7 +424,9 @@ void blinkForBattery()
   rawValue = rawValue/NMES; // average of a bunch of measures
   
   // Vref is 3.3V so 4095 correspond to 3.3V.
-  float voltage = (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
+  float voltage = rawValue * VREF;
+  voltage = voltage / 4095.0; // Convert to actual volts (max 3.3V)
+  voltage *= 2 /3.38*4.12; // strange ratio , read 3.38V on analog input and 4.12V on multimeter
 
   // The actual max battery voltage is around 4.1V
   // The critical battery voltage is below 3.5V
@@ -424,10 +443,10 @@ void blinkForBattery()
   // }
   
   Serial.print("Battery Voltage: ");
-  Serial.print(voltage*2); // VBAT = measured_voltage * 2
+  Serial.print(voltage); // VBAT = measured_voltage * 2
   Serial.println(" V");
 
-  int voltage_deca = voltage * 2 * 10 / 4.2 ; // Scale to [0-10] to blink up to 10 times, representing the current voltage
+  int voltage_deca = voltage * 10 / 4.2 ; // Scale to [0-10] to blink up to 10 times, representing the current voltage
   // Now blink up to 10 times, showing more precision
   // It blinks 10 times when full. In theory, full = 4.2V -> 2.1V measured -> 0.63/10 -> blink 6 times.
   // It blinks TBC times when on battery for a lil while. In theory 3.7V -> 1.85V measured -> 0.56/10 -> blink 5 times.
@@ -437,14 +456,17 @@ void blinkForBattery()
   // Green  : >50%    of [3.5-4.2] : voltage>3.85 V
   // Yellow : 25-50%  of [3.5-4.2] : 3.675 V <= voltage <= 3.85 V 
   // Red    : <25%    of [3.5-4.2] : voltage < 3.675 V
-  if (voltage > 3.85)
-    //blink_RGB(500,3,LOW,HIGH,LOW);
-    blink(500,voltage_deca);
-  else if ((3.675 <= voltage) && (3.85 >= voltage))
-    //blink_RGB(300,5,HIGH,HIGH,LOW);
-    blink(300,voltage_deca*2);
-  else
-    blink(100,voltage_deca*3);
-    //blink_RGB(100,15,HIGH,LOW,LOW);
+  if (voltage > 3.85){
+    blink_RGB(500,3,LOW,HIGH,LOW);
+    // blink(500,voltage_deca);
+  }
+  else{
+    if ((3.675 <= voltage) && (3.85 >= voltage))
+      blink_RGB(300,5,HIGH,HIGH,LOW);
+      // blink(300,voltage_deca*2);
+    else
+      // blink(100,voltage_deca*3);
+      blink_RGB(100,15,HIGH,LOW,LOW);
+  }
 }
 

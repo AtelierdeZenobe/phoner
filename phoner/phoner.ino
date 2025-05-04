@@ -26,11 +26,6 @@ const char* PHONE_NUMBER = "+32498341934";
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-//#define PHONER_BOARD_V1
-#define PHONER_BOARD_V2
-
-//TODO only track latest board on main (board_v1 tracked in its own branch)
-#ifdef PHONER_BOARD_V1
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 /// Button
@@ -48,24 +43,6 @@ const int TX_PIN_UNUSED_ON_BOARD = 17;
 #define LED_B GPIO_NUM_20
 // LED2
 #define LED2 GPIO_NUM_23
-
-#elifdef PHONER_BOARD_V2 // everything routed on PCB
-const int RX_PIN = 4;
-const int TX_PIN = 5;
-/// Button
-#define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32
-/// RST pin
-#define RST_GPIO GPIO_NUM_21
-/// DTR pin
-#define DTR_GPIO GPIO_NUM_7
-// RGB LED
-#define LED_R GPIO_NUM_20
-#define LED_G GPIO_NUM_19
-#define LED_B GPIO_NUM_16
-// LED2
-#define LED2 GPIO_NUM_23
-
-#endif
 
 // Serial HW com' with SIM800L
 HardwareSerial sim800l(1); // RX, TX pins defined above
@@ -108,11 +85,9 @@ void setup()
   pinMode(RST_GPIO,OUTPUT);
   pinMode(DTR_GPIO,OUTPUT);
   
-  #ifdef PHONER_BOARD_V1
   //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
   pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
   pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
-  #endif
 
   /// Btn
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
@@ -131,11 +106,8 @@ void setup()
   // Setup Serial communications
   Serial.begin(9600); // Serial monitor comm
   Serial.write("Serial initialized\n");
-  #ifdef PHONER_BOARD_V1
   Serial.write("Use Phoner Board v1.1 \n");
-  #elifdef PHONER_BOARD_V2
-  Serial.write("Use Phoner Board v1.2 \n");
-  #endif
+  
 
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");

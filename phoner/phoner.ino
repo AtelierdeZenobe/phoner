@@ -18,6 +18,8 @@
 #include <HardwareSerial.h>
 
 const char* PHONE_NUMBER = "+32498341934";
+//const char* PHONE_NUMBER = "+32475896931";
+
 
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000       
@@ -26,30 +28,6 @@ const char* PHONE_NUMBER = "+32498341934";
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-//#define PHONER_BOARD_V1
-#define PHONER_BOARD_V2
-
-//TODO only track latest board on main (board_v1 tracked in its own branch)
-#ifdef PHONER_BOARD_V1
-const int RX_PIN = 4;
-const int TX_PIN = 5;
-/// Button
-#define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32 /!\ used for RED LED on PCB
-// These pins are connected on the PCB, but not used for the moment => define as inputs
-const int RX_PIN_UNUSED_ON_BOARD = 16;
-const int TX_PIN_UNUSED_ON_BOARD = 17;
-/// RST pin - routed on PCB
-#define RST_GPIO GPIO_NUM_7
-/// DTR pin - external wire
-#define DTR_GPIO GPIO_NUM_19
-// RGB LED
-#define LED_R GPIO_NUM_19
-#define LED_G GPIO_NUM_16 // actually routed on pin6 but BTN is plugged on that pin finally
-#define LED_B GPIO_NUM_20
-// LED2
-#define LED2 GPIO_NUM_23
-
-#elifdef PHONER_BOARD_V2 // everything routed on PCB
 const int RX_PIN = 4;
 const int TX_PIN = 5;
 /// Button
@@ -65,13 +43,11 @@ const int TX_PIN = 5;
 // LED2
 #define LED2 GPIO_NUM_23
 
-#endif
-
 // Serial HW com' with SIM800L
 HardwareSerial sim800l(1); // RX, TX pins defined above
 
 /// Battery
-const int VBAT_PIN = 0; // IO0 through a a res bridge (VBAT--1M--IO0--1M//100nF--GND) as in SCH
+const int VBAT_PIN = 0; // IO0 through a res bridge (VBAT--1M--IO0--1M//100nF--GND) as in SCH
 const float VREF = 3.3;
 
 /// On-board led
@@ -83,7 +59,7 @@ RTC_DATA_ATTR int bootCount = 0;
 enum OPERATION_RESULT
 {
   ONGOING,
-  OK,
+  DONE, // I got an error, conflict with previous declaration so OK becomes DONE
   TIMEOUT,
   WRONG_ANSWER
 };
@@ -107,12 +83,6 @@ void setup()
   
   pinMode(RST_GPIO,OUTPUT);
   pinMode(DTR_GPIO,OUTPUT);
-  
-  #ifdef PHONER_BOARD_V1
-  //// Define RX-TX pins on PCB as input to not interfere with pin 4 and 5 finally used with wires for the moment
-  pinMode(RX_PIN_UNUSED_ON_BOARD,INPUT);
-  pinMode(TX_PIN_UNUSED_ON_BOARD,INPUT);
-  #endif
 
   /// Btn
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
@@ -131,11 +101,8 @@ void setup()
   // Setup Serial communications
   Serial.begin(9600); // Serial monitor comm
   Serial.write("Serial initialized\n");
-  #ifdef PHONER_BOARD_V1
-  Serial.write("Use Phoner Board v1.1 \n");
-  #elifdef PHONER_BOARD_V2
   Serial.write("Use Phoner Board v1.2 \n");
-  #endif
+
 
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
@@ -209,7 +176,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
   {
     updateSerial();
     delay(delay_value);
-    result = OPERATION_RESULT::OK;
+    result = OPERATION_RESULT::DONE;
   }
   else
   {
@@ -231,7 +198,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
         // Vérifiez si la réponse attendue est contenue
         if (response.indexOf(expectedResponse) != -1)
         {
-          result = OPERATION_RESULT::OK;
+          result = OPERATION_RESULT::DONE;
         }
       }
       //delay(1); // it is ok because baudrate is set to 9600x
@@ -239,7 +206,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
 
     switch(result)
     {
-      case OPERATION_RESULT::OK:
+      case OPERATION_RESULT::DONE:
       {
         Serial.println(String(message) + " Command " + String(command) + " success");
         Serial.println(response);
@@ -302,25 +269,30 @@ void sleep_sim800L()
 {
   Serial.println("");
   Serial.println("Going to sleep now");
-  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK");
+  while(sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK") != OPERATION_RESULT::DONE){
+    delay(SHORT_DELAY_WAIT_SIM);
+  } // wait for the OK response, it may take a while to get the answer;
   delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
-    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK");
+    while(sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK"); != OPERATION_RESULT::DONE){
+      delay(SHORT_DELAY_WAIT_SIM);
+    } // wait for the OK response, it may take a while to get the answer;
     delay(100);
     digitalWrite(DTR_GPIO,HIGH); // put high for sleep mode
     delay(100);
   }
   else if (SLEEP_MODE == 2)
   {
-    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK");
+    while(sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK") != OPERATION_RESULT::DONE){
+      delay(SHORT_DELAY_WAIT_SIM);
+    } // wait for the OK response, it may take a while to get the answer;
     delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
   }
   else 
   {
     // no SLEEP mode
   }
-  
 }
 
 void wake_up_sim800L()
@@ -362,7 +334,7 @@ bool call()
   else
   {
     Serial.write("Size of phone number < 9 => Fake call...\n");
-    call_success=OPERATION_RESULT::OK; 
+    call_success=OPERATION_RESULT::DONE; 
   }
 
   Serial.print("waiting 20 sec ");
@@ -375,7 +347,7 @@ bool call()
   // better to wait for a reply or a connection beforing hanging up ??
   hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK");
   // here, check if call and/or hanging are true
-  if ( (hang_success != OPERATION_RESULT::OK) && (call_success != OPERATION_RESULT::OK)) // a problem occurred -> blink or restart call ?
+  if ( (hang_success != OPERATION_RESULT::DONE) && (call_success != OPERATION_RESULT::DONE)) // a problem occurred -> blink or restart call ?
     return false;
   else
     return true;
@@ -447,10 +419,12 @@ void blinkForBattery()
   rawValue = rawValue/NMES; // average of a bunch of measures
   
   // Vref is 3.3V so 4095 correspond to 3.3V.
+  // The voltage mesurement is actually VBAT/2
   float voltage = 2 * (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
-  
+  voltage *= (4.12/3.38); // strange ratio , read 3.38V on analog input (in serial monitor) and 4.12V on multimeter
+
   Serial.print("Battery Voltage: ");
-  Serial.print(voltage); // VBAT = measured_voltage * 2
+  Serial.print(voltage); // VBAT
   Serial.println(" V");
   
   // use the RGD LED instead
@@ -460,9 +434,18 @@ void blinkForBattery()
 
   // TODO: temporary: led RGB is only R due to short
   // Theorical minimal voltage is 3.4V but the batery measurement seems lower than actual battery ? TBC
-  if ( (voltage) < 2.9 ) //Yolo
-  {
-    blink_RGB(300,5,HIGH,LOW,LOW);
+  // That's why a wierd ratio is used to correct the voltage measurement, i.e. 4.12/3.38
+  if (voltage > 3.85){
+    blink_RGB(500,3,LOW,HIGH,LOW);
+    // blink(500,voltage_deca);
+  }
+  else{
+    if ((3.675 <= voltage) && (3.85 >= voltage))
+      blink_RGB(300,5,HIGH,HIGH,LOW);
+      // blink(300,voltage_deca*2);
+    else
+      // blink(100,voltage_deca*3);
+      blink_RGB(100,15,HIGH,LOW,LOW);
   }
 }
 

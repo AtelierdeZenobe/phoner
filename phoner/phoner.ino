@@ -20,30 +20,26 @@
 const char* PHONE_NUMBER = "+32498341934";
 //const char* PHONE_NUMBER = "+32475896931";
 
-
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
-#define DELAY_WAIT_SIM 5000       
-#define SHORT_DELAY_WAIT_SIM 200  
-#define TIMEOUT_SIM 15000          // used if USE_SIMPLE_DELAY = false
+#define DELAY_WAIT_SIM 5000   
+#define SHORT_DELAY_WAIT_SIM 200
+#define TIMEOUT_SIM 15000 // used if USE_SIMPLE_DELAY = false
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
 const int RX_PIN = 4;
 const int TX_PIN = 5;
+
 /// Button
 #define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32
-/// RST pin
-#define RST_GPIO GPIO_NUM_21
-/// DTR pin
-#define DTR_GPIO GPIO_NUM_7
-// RGB LED
-#define LED_R GPIO_NUM_20
-#define LED_G GPIO_NUM_19
-#define LED_B GPIO_NUM_16
-// LED2
-#define LED2 GPIO_NUM_23
 
-// Serial HW com' with SIM800L
+#define LED_R GPIO_NUM_19
+#define LED_G GPIO_NUM_20
+const int LED_B = 0xFF; // Not connected
+const int RST_GPIO = 0xFF; // Not connected
+const int DTR_GPIO = 0xFF; // Not connected
+
+
 HardwareSerial sim800l(1); // RX, TX pins defined above
 
 /// Battery
@@ -59,31 +55,20 @@ RTC_DATA_ATTR int bootCount = 0;
 enum OPERATION_RESULT
 {
   ONGOING,
-  DONE, // I got an error, conflict with previous declaration so OK becomes DONE
+  DONE,
   TIMEOUT,
   WRONG_ANSWER
 };
 
-// need function prototype
 OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
 
 void setup()
 { 
-  /*
-   * INITIAL SETUP
-  */
-
-  blink(500,1);
   /// On-board led
   pinMode(led, OUTPUT);
-  pinMode(LED2, OUTPUT);
   pinMode(LED_R, OUTPUT);
   pinMode(LED_G, OUTPUT);
-  pinMode(LED_B, OUTPUT);
   
-  pinMode(RST_GPIO,OUTPUT);
-  pinMode(DTR_GPIO,OUTPUT);
-
   /// Btn
   pinMode(BTN_GPIO, INPUT);          // I made it as a pullup button, so use PULLDOWN internal resistor with rtc functions (see after call deep_sleep)
                                      // change input arg of deep sleep function esp_sleep_enable_ext1_wakeup accordingly
@@ -94,15 +79,14 @@ void setup()
   pinMode(VBAT_PIN, INPUT);
 
   // setup SIM800L pin digital level
-  digitalWrite(DTR_GPIO,LOW);
-  digitalWrite(RST_GPIO,HIGH);
-  delay(100);
+  // digitalWrite(DTR_GPIO,LOW);
+  // digitalWrite(RST_GPIO,HIGH);
+  // delay(100);
 
   // Setup Serial communications
   Serial.begin(9600); // Serial monitor comm
   Serial.write("Serial initialized\n");
   Serial.write("Use Phoner Board v1.2 \n");
-
 
   // Setup sim800l module
   Serial.write("Initializing SIM800L ...");
@@ -115,25 +99,37 @@ void loop()
 {
   Serial.print("Bootcount = ");
   Serial.println(bootCount);
-  blink(500,bootCount); // for debug purpose
-  blinkForBattery();
-  if (bootCount++ == 0)
-  {
-    start_sim800L();
-    // Blink LED at the end of boot sequence
-    blink(100,3);
-  }
-  else
-  {
-    wake_up_sim800L();
-    if(!call())
-    {
-      blink_RGB(500, 3, HIGH, LOW, LOW);
-    }
-  }
+  // blink(500,bootCount); // for debug purpose
+  // blinkForBattery();
 
-  sleep_sim800L();
-  blinkForBattery(); // check battery before sleep
+  blink_RGB(500, 3, HIGH, LOW, LOW); //R
+  blink_RGB(500, 3, LOW, HIGH, LOW); //G
+  blink_RGB(500, 3, HIGH, HIGH, LOW); //Orange ?
+
+  start_sim800L();
+  delay(1000);
+  blink(100,3);
+  if(!call())
+  {
+    blink_RGB(200, 6, HIGH, HIGH, LOW);
+  }
+  // if (bootCount++ == 0)
+  // {
+  //   start_sim800L();
+  //   // Blink LED at the end of boot sequence
+  //   blink(100,3);
+  // }
+  // else
+  // {
+  //   wake_up_sim800L();
+  //   if(!call())
+  //   {
+  //     blink_RGB(500, 3, HIGH, LOW, LOW);
+  //   }
+  // }
+
+  //sleep_sim800L();
+  // blinkForBattery(); // check battery before sleep
   sleep_esp32();
   Serial.println("This will never be printed");
 }
@@ -275,7 +271,7 @@ void sleep_sim800L()
   delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
-    while(sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK"); != OPERATION_RESULT::DONE){
+    while(sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK") != OPERATION_RESULT::DONE){
       delay(SHORT_DELAY_WAIT_SIM);
     } // wait for the OK response, it may take a while to get the answer;
     delay(100);

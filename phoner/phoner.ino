@@ -27,8 +27,8 @@ const char* PHONE_NUMBER = "+32498341934";
 
 #define SLEEP_MODE 2 // 1 (using DTR pin) or 2
 
-const int RX_PIN = 4;
-const int TX_PIN = 5;
+const int RX_PIN = 17; // ESP RX (vert)
+const int TX_PIN = 16; // ESP TX (jaune)
 
 /// Button
 #define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32
@@ -109,6 +109,7 @@ void loop()
   start_sim800L();
   delay(1000);
   blink(100,3);
+  wake_up_sim800L();
   if(!call())
   {
     blink_RGB(200, 6, HIGH, HIGH, LOW);
@@ -128,7 +129,7 @@ void loop()
   //   }
   // }
 
-  //sleep_sim800L();
+  sleep_sim800L();
   // blinkForBattery(); // check battery before sleep
   sleep_esp32();
   Serial.println("This will never be printed");
@@ -283,7 +284,7 @@ void sleep_sim800L()
     while(sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK") != OPERATION_RESULT::DONE){
       delay(SHORT_DELAY_WAIT_SIM);
     } // wait for the OK response, it may take a while to get the answer;
-    delay(DELAY_WAIT_SIM); // wait for at least 5s without UART, on air or IO INTR
+    delay(DELAY_WAIT_SIM*2); // wait for at least 5s without UART, on air or IO INTR
   }
   else 
   {

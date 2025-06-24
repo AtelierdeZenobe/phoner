@@ -11,8 +11,28 @@
 // use Sleep mode 2
 // put some delay when sending AT CFUN and CSCLK to make sure I got an OK from sim
 
+/// Wifi
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "info.h"
+/**
+Current directory should contain "info.h" defining:
+struct WifiIds
+{
+  const char* ssid;
+  const char* password;
+};
+constexpr WifiIds wifiIds[] =
+{
+  {"SSID1", "PWD1"}, // Maison parents
+  {"SSID2", "PWD2"}, // Maison Loncin
+};
+
+const char* botToken, the telegram bot token (@BotFather)
+const char* chat_id, the telegram chat id (@userinfobot)
+*/
+
 /// Deepsleep
-//#include "esp_sleep.h"
 #include "driver/rtc_io.h" // see https://randomnerdtutorials.com/esp32-deep-sleep-arduino-ide-wake-up-sources/
 /// Sim800l comm
 #include <HardwareSerial.h>
@@ -33,8 +53,8 @@ const int TX_PIN = 16; // ESP TX (jaune)
 /// Button
 #define BTN_GPIO GPIO_NUM_6 // PIN 6/D12 = LP GPIO for wake up ESP32
 
-#define LED_R GPIO_NUM_19
-#define LED_G GPIO_NUM_20
+#define LED_R GPIO_NUM_20
+#define LED_G GPIO_NUM_19
 const int LED_B = 0xFF; // Not connected
 const int RST_GPIO = 0xFF; // Not connected
 const int DTR_GPIO = 0xFF; // Not connected
@@ -52,6 +72,8 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
+constexpr int MAX_TENTATIVES = 10;
+
 enum OPERATION_RESULT
 {
   ONGOING,
@@ -60,7 +82,19 @@ enum OPERATION_RESULT
   WRONG_ANSWER
 };
 
+enum class SM : int
+{
+  INIT = 0,
+  PRESSED,
+  WIFI_ATTEMPT,
+  GSM_ATTEMPT,
+  SUCCESS,
+  FAIL
+};
+
 OPERATION_RESULT sendATCommand(HardwareSerial &serial, const char *message,const char *command, const char *expectedResponse, unsigned long timeout, bool use_delay, unsigned long delay_value);
+bool ConnectToWifi();
+bool setState(SM next_state, SM& current_state);
 
 void setup()
 { 
@@ -97,39 +131,68 @@ void setup()
 
 void loop()
 {
+  SM sm = SM::INIT;
+
   Serial.print("Bootcount = ");
   Serial.println(bootCount);
   // blink(500,bootCount); // for debug purpose
   // blinkForBattery();
 
-  blink_RGB(500, 3, HIGH, LOW, LOW); //R
-  blink_RGB(500, 3, LOW, HIGH, LOW); //G
-  blink_RGB(500, 3, HIGH, HIGH, LOW); //Orange ?
-
-  start_sim800L();
-  delay(1000);
-  blink(100,3);
-  wake_up_sim800L();
-  if(!call())
+  if(bootCount++ == 0)
   {
-    blink_RGB(200, 6, HIGH, HIGH, LOW);
+    start_sim800L();
+    sleep_sim800L();
   }
-  // if (bootCount++ == 0)
-  // {
-  //   start_sim800L();
-  //   // Blink LED at the end of boot sequence
-  //   blink(100,3);
-  // }
-  // else
-  // {
-  //   wake_up_sim800L();
-  //   if(!call())
-  //   {
-  //     blink_RGB(500, 3, HIGH, LOW, LOW);
-  //   }
-  // }
+  else
+  {
+    setState(SM::PRESSED, sm);
+    SM next_state = ConnectToWifi() ? SM::WIFI_ATTEMPT : SM::GSM_ATTEMPT;
+    setState(next_state, sm);
+    if (sm == SM::WIFI_ATTEMPT)
+    {
+      HTTPClient http;
+      String message = "PHONER_EMERGENCY";
+      String url = String("https://api.telegram.org/bot") + botToken +
+                  "/sendMessage?chat_id=" + chat_id +
+                  "&text=" + message;
+      http.begin(url);
+      int httpCode = http.GET();
+      Serial.println("HTTP Status: " + String(httpCode));
+      if (httpCode != 200)
+      {
+        setState(SM::GSM_ATTEMPT, sm);
+        String response = http.getString();
+        Serial.println("Telegram Error: " + response);
+      }
+      else
+      {
+        setState(SM::SUCCESS, sm);
+      }
+      http.end();
+    }
 
-  sleep_sim800L();
+    if(sm == SM::GSM_ATTEMPT)
+    {
+      Serial.println("Could not connect to wifi, trying GSM");
+      blink(100,3);
+      wake_up_sim800L();
+      if(!call())
+      {
+        setState(SM::FAIL, sm);
+      }
+      else
+      {
+        setState(SM::SUCCESS, sm);
+      }
+      sleep_sim800L();
+    }
+    else
+    {
+      Serial.print("SM state: ");
+      Serial.println(static_cast<int>(sm));
+    }
+  }
+  delay(2000); // Easier to re-flash
   // blinkForBattery(); // check battery before sleep
   sleep_esp32();
   Serial.println("This will never be printed");
@@ -139,6 +202,107 @@ void loop()
 // ESP32 functions
 // ------------------------------------------------------------- //
 // sleep_esp32()
+
+bool setState(SM next_state, SM& current_state)
+{
+  // TODO: allowed transitions
+  bool result = false;
+  switch(next_state)
+  {
+    case SM::INIT:
+    {
+
+    }
+    case SM::PRESSED:
+    {
+      blink_RGB(500, 1, HIGH, LOW, LOW); //R
+      blink_RGB(500, 1, LOW, HIGH, LOW); //G
+      digitalWrite(LED_R, HIGH);
+      digitalWrite(LED_G, HIGH);
+      //blink_RGB(500, 1, HIGH, HIGH, LOW); //Orange ?
+      result = true;
+      break;
+    }
+    case SM::WIFI_ATTEMPT: // Orange
+    {
+      blink_RGB(500, 3, HIGH, HIGH, LOW); //Orange ?
+      digitalWrite(LED_R, HIGH);
+      digitalWrite(LED_G, HIGH);
+      result = true;
+      break;
+    }
+    case SM::GSM_ATTEMPT: // Blink red then Orange
+    {
+      blink_RGB(500, 3, HIGH, LOW, LOW);
+      digitalWrite(LED_R, HIGH);
+      digitalWrite(LED_G, HIGH);
+      result = true;
+      break;
+    }
+    case SM::SUCCESS: // GREEN
+    {
+      digitalWrite(LED_R, LOW);
+      digitalWrite(LED_G, HIGH);
+      result = true;
+      break;
+    }
+    case SM::FAIL: // RED
+    {
+      digitalWrite(LED_R, HIGH);
+      digitalWrite(LED_G, LOW);
+      result = true;
+      break;
+    }
+    default:
+    {
+      Serial.println("Default state should never happen");
+    }
+  }
+
+  if(result)
+  {
+    Serial.print("Transition : "); Serial.print(static_cast<int>(current_state)); Serial.print(" -> "); Serial.print(static_cast<int>(next_state));
+    current_state = next_state;
+  }
+  else
+  {
+    Serial.print("Incorrect transition : "); Serial.print(static_cast<int>(current_state)); Serial.print(" -> "); Serial.print(static_cast<int>(next_state));
+  }
+  return result;
+}
+
+bool ConnectToWifi()
+{
+  for (int i = 0; i < N_WIFI; ++i) 
+  {
+    int tentative = 0;
+    const char* ssid = wifiIds[i].ssid;
+    const char* password = wifiIds[i].password;
+
+    Serial.println("Attempting to connect to wifi:");
+    Serial.print("\t"); Serial.println(ssid);
+    Serial.print("\t"); Serial.println(password);
+
+    WiFi.begin(ssid, password);
+
+    while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_TENTATIVES) )
+    {
+      delay(500);
+      Serial.print(".");
+    };
+    Serial.println("");
+
+    if(WiFi.status() == WL_CONNECTED)
+    {
+      Serial.println("\nWiFi connected");
+      return true;
+    }
+
+    WiFi.disconnect(true);  // true = erase old config
+    delay(100); // give some time to cleanly disconnect
+  }
+  return false;
+}
 
 void sleep_esp32()
 {
@@ -242,6 +406,7 @@ OPERATION_RESULT sendATCommand(HardwareSerial &serialSIM, const char *message,co
 
 void start_sim800L()
 {
+  wake_up_sim800L();
   sendATCommand(sim800l,"Starting handshake...","AT","OK"); // Starting handshake
   sendATCommand(sim800l,"Signal quality test...","AT+CSQ","OK"); //Signal quality test, value range is 0-31 , 31 is the best
   sendATCommand(sim800l,"Reading SIM information...","AT+CCID","OK"); //Read SIM information to confirm whether the SIM is plugged

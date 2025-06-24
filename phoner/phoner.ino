@@ -110,6 +110,9 @@ void setup()
   
   /// Battery check
   analogReadResolution(12);
+  //analogSetAttenuation(ADC_6db); //ESP32-C6 datasheet: 0mv - 1900mV
+  // Best to avoid edges => Going full range with "biggest error"
+  analogSetAttenuation(ADC_11db);  //ESP32-C6 datasheet: 0mv - 3300 mV
   pinMode(VBAT_PIN, INPUT);
 
   // setup SIM800L pin digital level
@@ -174,7 +177,6 @@ void loop()
     if(sm == SM::GSM_ATTEMPT)
     {
       Serial.println("Could not connect to wifi, trying GSM");
-      blink(100,3);
       wake_up_sim800L();
       if(!call())
       {
@@ -193,7 +195,7 @@ void loop()
     }
   }
   delay(2000); // Easier to re-flash
-  // blinkForBattery(); // check battery before sleep
+  blinkForBattery(); // check battery before sleep
   sleep_esp32();
   Serial.println("This will never be printed");
 }
@@ -569,6 +571,11 @@ void blink_RGB(const int millis,int N, unsigned char state_LEDR, unsigned char s
 
 void blinkForBattery()
 {
+  //TODO
+  // ESP32 ADCs are known for non-linearity and compression. => Going for a calibration under voltage threshold, measuring via external PSU.
+  // Measure around critical threshold voltage: ~1.8V measured (3.6V). And create a calibration curve
+  
+  Serial.println("Reading battery:");
   // ADC is 12 bits precision -> 0 to 4095
   // int rawValue = analogRead(VBAT_PIN); // Voltage from ADC [0;4095]
   int NMES = 4; // no more than 16
@@ -579,24 +586,30 @@ void blinkForBattery()
     delay(1);
   }
   rawValue = rawValue/NMES; // average of a bunch of measures
-  
+  Serial.print("Raw value:");
+  Serial.println(rawValue);
   // Vref is 3.3V so 4095 correspond to 3.3V.
   // The voltage mesurement is actually VBAT/2
   float voltage = 2 * (rawValue * VREF) / 4095.0; // Convert to actual volts (max 3.3V)
-  voltage *= (4.12/3.38); // strange ratio , read 3.38V on analog input (in serial monitor) and 4.12V on multimeter
+  //voltage *= (4.12/3.38); // strange ratio , read 3.38V on analog input (in serial monitor) and 4.12V on multimeter
 
   Serial.print("Battery Voltage: ");
   Serial.print(voltage); // VBAT
   Serial.println(" V");
-  
+
+  int n_blinks = (rawValue-1600)/100;
+  Serial.print("Blinking ");
+  Serial.print(n_blinks);
+  Serial.println(" times");
+  blink(500, n_blinks); //
   // use the RGD LED instead
   // Green  : >50%    of [3.5-4.2] : voltage>3.85 V
   // Yellow : 25-50%  of [3.5-4.2] : 3.675 V <= voltage <= 3.85 V 
   // Red    : <25%    of [3.5-4.2] : voltage < 3.675 V
 
-  // TODO: temporary: led RGB is only R due to short
   // Theorical minimal voltage is 3.4V but the batery measurement seems lower than actual battery ? TBC
   // That's why a wierd ratio is used to correct the voltage measurement, i.e. 4.12/3.38
+  /*
   if (voltage > 3.85){
     blink_RGB(500,3,LOW,HIGH,LOW);
     // blink(500,voltage_deca);
@@ -609,5 +622,6 @@ void blinkForBattery()
       // blink(100,voltage_deca*3);
       blink_RGB(100,15,HIGH,LOW,LOW);
   }
+  */
 }
 

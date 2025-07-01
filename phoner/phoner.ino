@@ -149,7 +149,7 @@ void loop()
   else
   {
     setState(SM::PRESSED, sm);
-    SM next_state = ConnectToWifi() ? SM::WIFI_ATTEMPT : SM::GSM_ATTEMPT;
+    SM next_state = ConnectToWifi() && false ? SM::WIFI_ATTEMPT : SM::GSM_ATTEMPT;
     setState(next_state, sm);
     if (sm == SM::WIFI_ATTEMPT)
     {
@@ -416,7 +416,7 @@ void start_sim800L()
   // there is an error here, is it worth sending this command ? So comment it
   sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK"); //check the network registration status. Will answer +CREG: <n>,<stat>
   sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK"); // Querry battery status
-    
+  sendATCommand(sim800l,"Enabling CLC...","AT+CLCC=0","OK"); // Don't send AT+CLCC async
 }
 void reset_sim800L()
 {
@@ -501,12 +501,49 @@ bool call()
     call_success=OPERATION_RESULT::DONE; 
   }
 
-  Serial.print("waiting 20 sec ");
+  Serial.write("Waiting for answer\n");
+  long timeout = millis() + 20*1000;
+  String answer;
+  while (millis() < timeout)
+  {
+    auto callStatus = sendATCommand(sim800l, "Checking call status...", "AT+CLCC", "+CLCC: 1,0,0,0,0,", 500);
+    if(callStatus == OPERATION_RESULT::DONE)
+    {
+      Serial.println("Connected");
+    }
+    else
+    {
+      Serial.println(".");
+    }
+    /*
+    if (sim800l.available())
+    {
+      
+      
+      char c = sim800l.read();
+      //Serial.print(c);  // Forward response to serial monitor
+      answer += c;
+      if(c == '\n')
+      {
+        //Serial.print("EOL detected. Checking answer\n");
+        Serial.print(answer);
+        if(answer.substring(0,5)=="+CLCC")
+        {
+          Serial.print("CLCC detected\n");
+        }
+        answer = "";
+      }
+      
+    }
+    */
+  }
+  /*
   for (int n_loop=0;n_loop<20;n_loop++)
   {
     delay(1000); // wait
     Serial.print(".");
   }
+  */
   Serial.println("");
   // better to wait for a reply or a connection beforing hanging up ??
   hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK");

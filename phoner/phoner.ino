@@ -72,7 +72,7 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
-constexpr int MAX_TENTATIVES = 10;
+constexpr int MAX_WIFI_TENTATIVES = 50;
 
 enum OPERATION_RESULT
 {
@@ -287,7 +287,7 @@ bool ConnectToWifi()
 
     WiFi.begin(ssid, password);
 
-    while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_TENTATIVES) )
+    while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_WIFI_TENTATIVES) )
     {
       delay(500);
       Serial.print(".");

@@ -285,12 +285,16 @@ bool ConnectToWifi()
     Serial.print("\t"); Serial.println(ssid);
     Serial.print("\t"); Serial.println(password);
 
+    WiFi.disconnect(true, true);  // erase config & block until disconnected
+    delay(500);  // allow clean reset
+    WiFi.mode(WIFI_STA);          // ensure we're in station mode
+
     WiFi.begin(ssid, password);
 
     while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_WIFI_TENTATIVES) )
     {
-      delay(500);
       Serial.print(".");
+      delay(500);
     };
     Serial.println("");
 
@@ -300,8 +304,7 @@ bool ConnectToWifi()
       return true;
     }
 
-    WiFi.disconnect(true);  // true = erase old config
-    delay(100); // give some time to cleanly disconnect
+    Serial.println("\nFailed to connect. Trying next SSID.");
   }
   return false;
 }

@@ -72,7 +72,7 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
-constexpr int MAX_WIFI_TENTATIVES = 50;
+constexpr int MAX_WIFI_TENTATIVES = 20;
 
 enum OPERATION_RESULT
 {
@@ -421,8 +421,8 @@ void start_sim800L()
   sendATCommand(sim800l,"Reading SIM information...","AT+CCID","OK"); //Read SIM information to confirm whether the SIM is plugged
   //sendATCommand(sim800l,"Selecting mobile operator...","AT+COPS=0,2","OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM); // select the mobile network operator| AT+COPS=<mode>(0 for auto),<format>(2 for numeric),<oper>,<AcT>
   // there is an error here, is it worth sending this command ? So comment it
-  sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK"); //check the network registration status. Will answer +CREG: <n>,<stat>
-  sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK"); // Querry battery status
+  //sendATCommand(sim800l,"Checking network status...","AT+CREG?","OK"); //check the network registration status. Will answer +CREG: <n>,<stat>
+  //sendATCommand(sim800l,"Querying battery status...","AT+CBC","OK"); // Querry battery status
     
 }
 void reset_sim800L()
@@ -440,24 +440,18 @@ void sleep_sim800L()
 {
   Serial.println("");
   Serial.println("Going to sleep now");
-  while(sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK") != OPERATION_RESULT::DONE){
-    delay(SHORT_DELAY_WAIT_SIM);
-  } // wait for the OK response, it may take a while to get the answer;
+  sendATCommand(sim800l,"Set RF off","AT+CFUN=4","OK");
   delay(DELAY_WAIT_SIM); // should reply within 10 sec max according to AT CFUN page 96
   if (SLEEP_MODE == 1)
   {
-    while(sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK") != OPERATION_RESULT::DONE){
-      delay(SHORT_DELAY_WAIT_SIM);
-    } // wait for the OK response, it may take a while to get the answer;
+    sendATCommand(sim800l,"Set sleep mode 1","AT+CSCLK=1","OK");
     delay(100);
     digitalWrite(DTR_GPIO,HIGH); // put high for sleep mode
     delay(100);
   }
   else if (SLEEP_MODE == 2)
   {
-    while(sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK") != OPERATION_RESULT::DONE){
-      delay(SHORT_DELAY_WAIT_SIM);
-    } // wait for the OK response, it may take a while to get the answer;
+    sendATCommand(sim800l,"Set sleep mode 2","AT+CSCLK=2","OK");
     delay(DELAY_WAIT_SIM*2); // wait for at least 5s without UART, on air or IO INTR
   }
   else 

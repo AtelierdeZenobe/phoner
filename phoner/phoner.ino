@@ -165,7 +165,8 @@ void loop()
       {
         setState(SM::GSM_ATTEMPT, sm);
         String response = http.getString();
-        Serial.println("Telegram Error: " + response);
+        Serial.print("Telegram Error: ");
+        Serial.println(response);
       }
       else
       {
@@ -293,8 +294,11 @@ bool ConnectToWifi()
 
     while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_WIFI_TENTATIVES) )
     {
-      Serial.print(".");
+      WiFi.disconnect(true, true);  // erase config & block until disconnected
       delay(500);
+      WiFi.begin(ssid, password);
+      Serial.print(".");
+      delay(5000);
     };
     Serial.println("");
 

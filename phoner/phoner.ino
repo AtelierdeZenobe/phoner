@@ -13,6 +13,11 @@
 
 /// Wifi
 #include <WiFi.h>
+
+extern "C" {
+  #include "esp_wifi.h"
+}
+
 #include <HTTPClient.h>
 #include "info.h"
 /**
@@ -130,6 +135,9 @@ void setup()
   sim800l.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Works with HardwareSerial(1)
   Serial.write("done\n");
   delay(1000); // need a delay here
+
+  Serial.print("SDK version: ");
+  Serial.println(ESP.getSdkVersion());
 }
 
 void loop()
@@ -287,19 +295,22 @@ bool ConnectToWifi()
     Serial.print("\t"); Serial.println(password);
 
     WiFi.disconnect(true, true);  // erase config & block until disconnected
-    delay(500);  // allow clean reset
+    delay(5000);  // allow clean reset
     WiFi.mode(WIFI_STA);          // ensure we're in station mode
+
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+
 
     WiFi.begin(ssid, password);
 
-    while ( (WiFi.status() != WL_CONNECTED) && (tentative++ < MAX_WIFI_TENTATIVES) )
-    {
-      WiFi.disconnect(true, true);  // erase config & block until disconnected
-      delay(500);
-      WiFi.begin(ssid, password);
+    unsigned long startAttemptTime = millis();
+    const unsigned long wifiTimeout = 240000;  // 20 seconds timeout
+
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < wifiTimeout) {
       Serial.print(".");
       delay(5000);
-    };
+    }
     Serial.println("");
 
     if(WiFi.status() == WL_CONNECTED)

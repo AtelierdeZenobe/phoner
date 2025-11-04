@@ -35,15 +35,15 @@ constexpr WifiIds wifiIds[] =
 
 const char* botToken, the telegram bot token (@BotFather)
 const char* chat_id, the telegram chat id (@userinfobot)
+
+constexpr int N_NUMBERS = 2;
+const char* phone_numbers[N_NUMBERS] = {"+3201234567", "+3201230123"};
 */
 
 /// Deepsleep
 #include "driver/rtc_io.h" // see https://randomnerdtutorials.com/esp32-deep-sleep-arduino-ide-wake-up-sources/
 /// Sim800l comm
 #include <HardwareSerial.h>
-
-const char* PHONE_NUMBER = "+32498341934";
-//const char* PHONE_NUMBER = "+32475896931";
 
 #define USE_SIMPLE_DELAY false // set "false" for the new code for ATCommand, otherwise, set "true" to  use OLD CODE with SIMPLE DELAY
 #define DELAY_WAIT_SIM 5000   
@@ -77,7 +77,8 @@ const int led = 15;
 /// Setup logic
 RTC_DATA_ATTR int bootCount = 0;
 
-constexpr int MAX_WIFI_TENTATIVES = 20;
+/// WIfi
+constexpr unsigned long WIFI_TIMEOUT = 100000;
 
 enum OPERATION_RESULT
 {
@@ -301,13 +302,11 @@ bool ConnectToWifi()
     esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
 
-
     WiFi.begin(ssid, password);
 
     unsigned long startAttemptTime = millis();
-    const unsigned long wifiTimeout = 240000;  // 20 seconds timeout
 
-    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < wifiTimeout) {
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < WIFI_TIMEOUT) {
       Serial.print(".");
       delay(5000);
     }
@@ -503,25 +502,28 @@ bool call()
   OPERATION_RESULT call_success;
   OPERATION_RESULT hang_success;
 
-  if (strlen(PHONE_NUMBER) >= 9)
+  for(int i=0; i<N_NUMBERS; i++)
   {
-    call_success=sendATCommand(sim800l,"Calling...",(String("ATD") + PHONE_NUMBER + ";").c_str(),"OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
-  }
-  else
-  {
-    Serial.write("Size of phone number < 9 => Fake call...\n");
-    call_success=OPERATION_RESULT::DONE; 
-  }
+    if (strlen(phone_numbers[i]) >= 9)
+    {
+      call_success=sendATCommand(sim800l,"Calling...",(String("ATD") + phone_numbers[i] + ";").c_str(),"OK",TIMEOUT_SIM,USE_SIMPLE_DELAY,SHORT_DELAY_WAIT_SIM);
+    }
+    else
+    {
+      Serial.write("Size of phone number < 9 => Fake call...\n");
+      call_success=OPERATION_RESULT::DONE; 
+    }
 
-  Serial.print("waiting 20 sec ");
-  for (int n_loop=0;n_loop<20;n_loop++)
-  {
-    delay(1000); // wait
-    Serial.print(".");
+    Serial.print("waiting 20 sec ");
+    for (int n_loop=0;n_loop<20;n_loop++)
+    {
+      delay(1000); // wait
+      Serial.print(".");
+    }
+    Serial.println("");
+    // better to wait for a reply or a connection beforing hanging up ??
+    hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK");
   }
-  Serial.println("");
-  // better to wait for a reply or a connection beforing hanging up ??
-  hang_success=sendATCommand(sim800l,"Hanging up...","ATH","OK");
   // here, check if call and/or hanging are true
   if ( (hang_success != OPERATION_RESULT::DONE) && (call_success != OPERATION_RESULT::DONE)) // a problem occurred -> blink or restart call ?
     return false;
